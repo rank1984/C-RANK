@@ -1,12 +1,6 @@
-name: Trading Bot - Morning Scan
+name: Run Bot
 
 on:
-  schedule:
-    # כל יום שני-שישי בשעה 09:00 שעון ניו יורק (14:00 UTC בקיץ / 16:00 UTC בחורף)
-    # לפי שעון ישראל: 16:00 בקיץ / 17:00 בחורף
-    - cron: '0 14 * * 1-5'
-
-  # הרצה ידנית מהממשק של GitHub
   workflow_dispatch:
 
 jobs:
@@ -14,21 +8,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run morning scan (one-shot mode)
+      - name: Run bot
         env:
-          TOKEN:   ${{ secrets.TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          API_KEY: ${{ secrets.API_KEY }}
-          MODE:    morning_only
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python daily_bot.py
