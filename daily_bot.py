@@ -4,133 +4,100 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-# ─────────────────────────────────────────────
-# הגדרות ומשתני סביבה
-# ─────────────────────────────────────────────
+# הגדרות
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+SECTORS = {
+    "Crypto": ["MARA", "RIOT", "CLSK", "WULF", "BITF", "BTBT", "COIN", "MSTR"],
+    "EV/Tech": ["TSLA", "NIO", "RIVN", "LCID", "NVDA", "AMD", "PLTR", "SOUN"],
+    "Meme/Penny": ["GME", "AMC", "HOOD", "TLRY", "LUNR", "BBAI"]
+}
 
 def send_telegram_msg(msg):
     if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"Error sending: {e}")
+    requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
 
-# ─────────────────────────────────────────────
-# חישוב RSI (מדד חוזק יחסי)
-# ─────────────────────────────────────────────
-def calculate_rsi(data, window=14):
-    delta = data.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+def get_market_context():
+    """בודק את מצב הנאסדאק כרגע"""
+    qqq = yf.Ticker("QQQ").history(period="2d")
+    change = ((qqq['Close'].iloc[-1] - qqq['Close'].iloc[-2]) / qqq['Close'].iloc[-2]) * 100
+    if change > 0.5: return f"🟢 שוק חזק ({change:+.1f}%) - אישור כניסה מלא"
+    if change < -0.5: return f"🔴 שוק חלש ({change:+.1f}%) - זהירות כפולה!"
+    return f"🟡 שוק יציב ({change:+.1f}%)"
 
-# ─────────────────────────────────────────────
-# לוגיקה פיננסית משופרת
-# ─────────────────────────────────────────────
-def calculate_metrics(price, change, volume, rsi_value):
-    entry = round(price * 1.003, 2)
-    target = round(entry * 1.12, 2)
-    stop = round(entry * 0.96, 2)
-    risk = entry - stop
-    reward = target - entry
-    rr = round(reward / risk, 1) if risk > 0 else 0
-    expected_gain = round(((target - price) / price) * 100, 1)
+def analyze_stock(symbol, hist, sector):
+    curr, prev = hist.iloc[-1], hist.iloc[-2]
+    gap = ((curr['Open'] - prev['Close']) / prev['Close']) * 100
+    change = ((curr['Close'] - prev['Close']) / prev['Close']) * 100
+    rvol = curr['Volume'] / hist['Volume'].tail(10).mean()
     
-    # דירוג AI משופר (0-100)
-    score = 0
-    if 2 <= price <= 50: score += 20
-    if abs(change) > 4: score += 25
-    if volume > 1_000_000: score += 20
+    # חישוב RSI פשוט
+    delta = hist['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rsi = 100 - (100 / (1 + (gain/loss))).iloc[-1]
+
+    # נתוני Float (במיליונים)
+    info = yf.Ticker(symbol).info
+    float_shares = info.get('floatShares', 500_000_000) / 1_000_000
+    short_pct = info.get('shortPercentOfFloat', 0) * 100
+
+    # RR דינמי
+    stop_pct = 0.06 if abs(change) > 8 else 0.04
+    target_pct = 0.15 if abs(change) > 8 else 0.10
     
-    # פילטר RSI:
-    if 40 <= rsi_value <= 65: 
-        score += 35  # אידיאלי לפריצה
-    elif rsi_value > 75:
-        score -= 20  # קניית יתר - מסוכן!
-    elif rsi_value < 30:
-        score += 15  # מכירת יתר - פוטנציאל לזינוק (Reversal)
-        
-    return entry, target, stop, rr, expected_gain, max(0, min(score, 100))
-
-# ─────────────────────────────────────────────
-# סריקה וניתוח
-# ─────────────────────────────────────────────
-def scan_markets():
-    watch_list = [
-        "MARA", "RIOT", "CLSK", "WULF", "PLTR", "SOFI", "NIO", "RIVN", 
-        "LCID", "TSLA", "AMD", "NVDA", "TQQQ", "SQ", "PYPL", "HOOD", 
-        "AMC", "GME", "BBAI", "SOUN", "LUNR", "TLRY", "BITF", "BTBT"
-    ]
+    entry = round(curr['Close'] * 1.003, 2)
     
-    candidates = []
-    for symbol in watch_list:
-        try:
-            t = yf.Ticker(symbol)
-            # מושכים 30 יום כדי לחשב RSI של 14 יום בצורה מדויקת
-            hist = t.history(period="30d")
-            if len(hist) < 20: continue
-            
-            # חישוב RSI
-            rsi_series = calculate_rsi(hist['Close'])
-            current_rsi = round(rsi_series.iloc[-1], 1)
-            
-            price = hist['Close'].iloc[-1]
-            prev_close = hist['Close'].iloc[-2]
-            change = ((price - prev_close) / prev_close) * 100
-            volume = hist['Volume'].iloc[-1]
+    score = 40
+    tags = []
+    if gap > 3: score += 20; tags.append("🚀 Gap")
+    if rvol > 2.5: score += 20; tags.append("📊 RVOL")
+    if float_shares < 50: score += 10; tags.append("💎 LowFloat")
+    if short_pct > 15: score += 10; tags.append("🩳 Squeeze")
 
-            if not (1.5 <= price <= 100): continue # טווח גמיש מעט יותר
-            
-            entry, target, stop, rr, exp, score = calculate_metrics(price, change, volume, current_rsi)
-            
-            candidates.append({
-                "symbol": symbol, "price": round(price, 2), "change": round(change, 2),
-                "volume": volume, "entry": entry, "target": target, "stop": stop,
-                "rr": rr, "expected": exp, "score": score, "rsi": current_rsi
-            })
-        except: continue
-            
-    candidates.sort(key=lambda x: x['score'], reverse=True)
-    return candidates[:10]
+    return {
+        "symbol": symbol, "score": min(score, 100), "price": round(curr['Close'], 2),
+        "gap": round(gap, 1), "rvol": round(rvol, 1), "rsi": round(rsi, 1),
+        "entry": entry, "target": round(entry*(1+target_pct), 2), "stop": round(entry*(1-stop_pct), 2),
+        "tags": tags, "sector": sector, "change": round(change, 1), "float": round(float_shares, 1)
+    }
 
-# ─────────────────────────────────────────────
-# הרצה ראשית
-# ─────────────────────────────────────────────
 def main():
-    # התאמת זמן לישראל (הוספת 3 שעות לזמן השרת)
-    israel_time = datetime.now() + timedelta(hours=3)
-    time_str = israel_time.strftime("%H:%M")
-    date_str = israel_time.strftime("%d/%m/%Y")
+    market_status = get_market_context()
+    all_res = []
+    sector_heat = {}
 
-    found_stocks = scan_markets()
+    for sector, tickers in SECTORS.items():
+        count = 0
+        for s in tickers:
+            try:
+                res = analyze_stock(s, yf.Ticker(s).history(period="20d"), sector)
+                all_res.append(res)
+                if res['change'] > 2: count += 1
+            except: continue
+        sector_heat[sector] = count
+
+    top_picks = sorted(all_res, key=lambda x: x['score'], reverse=True)[:8]
     
-    if not found_stocks:
-        send_telegram_msg(f"⚠️ לא נמצאו מניות מתאימות ב-{time_str}")
-        return
+    # שמירה ליומן
+    pd.DataFrame(top_picks).to_csv('trade_journal.csv', mode='a', header=not os.path.exists('trade_journal.csv'), index=False)
 
-    msg = f"🎯 <b>C-RANK: דוח מסחר ישראל</b>\n"
-    msg += f"📅 {date_str} | ⏰ {time_str} (שעון IL)\n"
+    msg = f"🛡️ <b>C-RANK ELITE REPORT</b>\n"
+    msg += f"📊 <b>מצב שוק:</b> {market_status}\n"
+    msg += f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
     msg += f"━━━━━━━━━━━━━━━━━━\n\n"
 
-    for i, s in enumerate(found_stocks, 1):
-        # אייקון לפי RSI
-        rsi_icon = "⚠️" if s['rsi'] > 70 else "✅"
-        icon = "🔥" if s['score'] >= 85 else "⚡"
-        
-        msg += f"{i}. {icon} <b>{s['symbol']}</b> | ציון: <b>{s['score']}</b>\n"
-        msg += f"💰 מחיר: <code>${s['price']}</code> ({s['change']:+.1f}%)\n"
-        msg += f"📊 RSI: {s['rsi']} {rsi_icon}\n"
+    for s in top_picks:
+        heat = "🔥" if sector_heat[s['sector']] >= 3 else ""
+        msg += f"<b>{s['symbol']}</b> {heat} | ציון: {s['score']}\n"
+        msg += f"💡 {' | '.join(s['tags'])}\n"
+        msg += f"📊 Gap: {s['gap']}% | RVOL: {s['rvol']}x | Float: {s['float']}M\n"
         msg += f"🟢 כניסה: <b>${s['entry']}</b> | 🎯 יעד: <b>${s['target']}</b>\n"
-        msg += f"🛑 סטופ: <code>${s['stop']}</code> | ⚖️ RR: 1:{s['rr']}\n\n"
+        msg += f"🛑 סטופ: ${s['stop']}\n\n"
 
-    msg += "━━━━━━━━━━━━━━━━━━\n"
-    msg += "💡 <i>RSI מעל 70 מעיד על קניית יתר (סיכון גבוה).</i>"
-    
+    msg += "━━━━━━━━━━━━━━━━━━\n💡 <i>כניסה רק מעל מחיר ה-Entry בגרף 5 דקות.</i>"
     send_telegram_msg(msg)
 
 if __name__ == "__main__":
