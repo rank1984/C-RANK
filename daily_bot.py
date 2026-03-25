@@ -176,7 +176,7 @@ def run_live_loop():
         for ticker, data in candidates.items():
             price, change, volume = data["price"], data["change"], data["volume"]
             if not (1 <= price <= 50) or volume < 300_000: continue
-            if change > 80 or change < 4: continue
+            if change > 80 or change < 2: continue
             entry, target, stop, rr, expected = calculate_targets(price, change)
             score = ai_score(change, volume, price, data["sources"], data.get("premarket_change", 0))
             if score >= 65 and rr >= 2.0 and ticker not in alerted_entry and ticker not in active_trades:
