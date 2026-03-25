@@ -1,23 +1,25 @@
-name: Run Bot
+name: Run Trading Bot
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 14 * * 1-5' # ימים שני-שישי ב-16:00 (שעון ישראל בקיץ)
+  workflow_dispatch: # מאפשר הרצה ידנית בלחיצת כפתור
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install yfinance requests pandas
 
       - name: Run bot
         env:
