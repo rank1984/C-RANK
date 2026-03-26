@@ -2,8 +2,9 @@ name: Run C-RANK Elite Bot
 
 on:
   schedule:
-    - cron: '45 13 * * 1-5' # 16:45 שעון ישראל (13:45 UTC)
-  workflow_dispatch: # מאפשר הרצה ידנית
+    # 13:40 UTC = 16:40 Israel (זמן מושלם, 10 דקות אחרי הפתיחה)
+    - cron: '40 13 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   run-bot:
