@@ -2,8 +2,8 @@ name: Run C-RANK Elite Bot
 
 on:
   schedule:
-    # 13:40 UTC = 16:40 Israel (זמן מושלם, 10 דקות אחרי הפתיחה)
-    - cron: '40 13 * * 1-5'
+    - cron: '30 14 * * 1-5' # 16:30 שעון ישראל (פתיחת מסחר - דוח אליט)
+    - cron: '50 14 * * 1-5' # 16:50 שעון ישראל (סיגנל זהב בזמן אמת)
   workflow_dispatch:
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install yfinance requests pandas
+        run: pip install yfinance requests pandas pytz
 
       - name: Run bot
         env:
@@ -34,5 +34,5 @@ jobs:
           git config --global user.name "C-RANK Bot"
           git config --global user.email "bot@c-rank.com"
           git add trade_journal.csv || echo "No changes"
-          git commit -m "Update Journal [skip ci]" || echo "No changes"
+          git commit -m "Update Journal with 7h offset [skip ci]" || echo "No changes"
           git push || echo "Push failed"
