@@ -1,38 +1,50 @@
-name: Run C-RANK Elite Bot
+name: DAY-S-BOT
 
 on:
   schedule:
-    - cron: '30 14 * * 1-5' # 16:30 שעון ישראל (פתיחת מסחר - דוח אליט)
-    - cron: '50 14 * * 1-5' # 16:50 שעון ישראל (סיגנל זהב בזמן אמת)
+    - cron: '20 14 * * 1-5'   # 9:20 NY  = סריקת בוקר
+    - cron: '45-59 13 * * 1-5' # 9:45 NY  = ציד (כל דקה)
+    - cron: '0-15 14 * * 1-5'  # 10:00 NY = ציד (המשך)
+    - cron: '16-30 14 * * 1-5' # 10:16 NY = Follow-Up
+    - cron: '30 21 * * 1-5'    # 16:30 NY = הכנה + CSV
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install yfinance requests pandas pytz
+      - name: Install
+        run: pip install yfinance pandas requests pytz
 
-      - name: Run bot
+      - name: Get date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Restore state
+        uses: actions/cache@v3
+        with:
+          path: |
+            signals_*.csv
+            state_*.json
+          key: bot-${{ steps.date.outputs.date }}
+          restore-keys: bot-
+
+      - name: Run
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python daily_bot.py
+        run: python day_s_bot_FINAL.py
 
-      - name: Commit and push journal
-        run: |
-          git config --global user.name "C-RANK Bot"
-          git config --global user.email "bot@c-rank.com"
-          git add trade_journal.csv || echo "No changes"
-          git commit -m "Update Journal with 7h offset [skip ci]" || echo "No changes"
-          git push || echo "Push failed"
+      - name: Save CSV artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: signals-${{ steps.date.outputs.date }}
+          path: signals_*.csv
+          retention-days: 30
