@@ -2,14 +2,10 @@ name: DAY-S-BOT
 
 on:
   schedule:
-    # ישראל קיץ = UTC+3
-    # NY חורף = UTC-5 (עד מרץ), NY קיץ = UTC-4 (מאפריל)
-    #
-    # 16:45 ישראל קיץ = 13:45 UTC
-    # (NY עדיין פותח 9:30 NY = 14:30 UTC בחורף, 13:30 UTC בקיץ)
+    # ישראל קיץ UTC+3 | NY קיץ UTC-4
+    # 16:45 ישראל = 13:45 UTC
     - cron: '45 13 * * 1-5'
-
-    # 21:30 ישראל קיץ = 18:30 UTC
+    # 21:30 ישראל = 18:30 UTC
     - cron: '30 18 * * 1-5'
 
   workflow_dispatch:
@@ -18,9 +14,9 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -32,7 +28,7 @@ jobs:
         run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: שחזור state
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             signals_*.csv
@@ -48,7 +44,7 @@ jobs:
 
       - name: שמירת CSV
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: signals-${{ steps.date.outputs.date }}
           path: signals_*.csv
