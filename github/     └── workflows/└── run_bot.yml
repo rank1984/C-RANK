@@ -2,11 +2,11 @@ name: DAY-S-BOT
 
 on:
   schedule:
-    - cron: '20 14 * * 1-5'   # 9:20 NY  = סריקת בוקר
-    - cron: '45-59 13 * * 1-5' # 9:45 NY  = ציד (כל דקה)
-    - cron: '0-15 14 * * 1-5'  # 10:00 NY = ציד (המשך)
-    - cron: '16-30 14 * * 1-5' # 10:16 NY = Follow-Up
-    - cron: '30 21 * * 1-5'    # 16:30 NY = הכנה + CSV
+    # 16:45 ישראל חורף = 14:45 UTC
+    - cron: '45 14 * * 1-5'
+    # 21:30 ישראל חורף = 19:30 UTC  
+    - cron: '30 19 * * 1-5'
+
   workflow_dispatch:
 
 jobs:
@@ -19,32 +19,33 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install
+      - name: התקנה
         run: pip install yfinance pandas requests pytz
 
-      - name: Get date
+      - name: תאריך
         id: date
         run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
-      - name: Restore state
+      - name: שחזור state
         uses: actions/cache@v3
         with:
           path: |
             signals_*.csv
             state_*.json
-          key: bot-${{ steps.date.outputs.date }}
-          restore-keys: bot-
+          key: bot-${{ steps.date.outputs.date }}-${{ github.run_number }}
+          restore-keys: bot-${{ steps.date.outputs.date }}-
 
-      - name: Run
+      - name: הרצה
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python day_s_bot_FINAL.py
 
-      - name: Save CSV artifact
+      - name: שמירת CSV
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: signals-${{ steps.date.outputs.date }}
           path: signals_*.csv
           retention-days: 30
+          if-no-files-found: ignore
