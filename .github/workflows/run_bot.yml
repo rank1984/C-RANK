@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  # מבטל את אזהרת ה-Node.js 20 ומעביר ל-Node 24
+  # מעביר את הריצה ל-Node 24 כדי למנוע אזהרות עתידיות
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
@@ -32,20 +32,11 @@ jobs:
         id: date
         run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
-      - name: Restore Cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            signals_*.csv
-            state_*.json
-          key: bot-${{ steps.date.outputs.date }}-${{ github.run_number }}
-          restore-keys: bot-${{ steps.date.outputs.date }}-
-
       - name: Run Bot
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # כאן התיקון הקריטי - השם תואם לקובץ ב-Repo שלך:
+        # וודא שזה השם המדויק של הקובץ שנמצא ב-Repo שלך:
         run: python daily_bot.py
 
       - name: Save Artifacts
