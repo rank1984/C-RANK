@@ -1,0 +1,41 @@
+name: DAY-S-BOT v9.5
+
+on:
+  schedule:
+    - cron: "*/10 13-19 * * 1-5"
+    - cron: "0 20 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install yfinance pandas numpy requests pytz
+
+      - name: Run Bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          ACCOUNT_SIZE:       ${{ secrets.ACCOUNT_SIZE }}
+        run: python trading_bot.py
+
+      - name: Save Logs
+        run: |
+          git config user.name  "DAY-S-BOT"
+          git config user.email "bot@days-bot.com"
+          git add signals_log.csv near_miss_log.csv daily_watchlist.csv 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "📊 Log $(date -u '+%Y-%m-%d %H:%M')"
+          git push || true
