@@ -1,1 +1,2 @@
 date,time_il,symbol,phase,price,stop,t1,t2,qty,risk_usd,max_entry,score,vol_pct,rsi,vwap_pct,rs,is_explosion,spy_day,result,pnl_usd,notes
+2026-04-13,20:36,NIO,NORMAL,6.56,6.43,6.82,7.08,17,2.23,6.59,100,164,68.6,1.12,-0.05,False,0.71,,,
