@@ -1,3 +1,5 @@
 date,time_il,symbol,phase,price,stop,t1,t2,qty,risk_usd,max_entry,score,vol_pct,rsi,vwap_pct,rs,is_explosion,spy_day,result,pnl_usd,notes
 2026-04-13,20:36,NIO,NORMAL,6.56,6.43,6.82,7.08,17,2.23,6.59,100,164,68.6,1.12,-0.05,False,0.71,,,
 2026-04-14,19:17,RIVN,NORMAL,16.08,15.76,16.72,17.37,6,1.93,16.14,100,160,53.1,0.52,0.04,False,0.78,,,
+2026-04-14,22:59,SOFI,POWER_HOUR,17.92,17.56,18.64,19.35,6,2.15,17.99,100,237,60.4,0.69,0.07,False,0.98,,,
+2026-04-14,22:59,NU,POWER_HOUR,15.34,15.03,15.95,16.57,7,2.15,15.4,91,157,49.8,0.18,-0.19,False,0.98,,,
