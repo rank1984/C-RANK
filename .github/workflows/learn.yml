@@ -1,0 +1,24 @@
+name: Learn from yesterday
+
+on:
+  schedule:
+    - cron: '30 20 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install pandas
+      - run: python learn_from_yesterday.py
+      - name: Commit updated config
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add bot_config.json
+          git commit -m "auto-update bot config" || exit 0
+          git push
