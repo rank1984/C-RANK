@@ -1,13 +1,16 @@
 """
-DAY-S-BOT v9.5 — SNIPER + LOGGER
-==================================
+DAY-S-BOT v10.0 — DYNAMIC + SOCIAL WATCHLIST
+==============================================
 ✅ מחירים מעוגלים
 ✅ Market Phase (Kill Zone / Normal / Power Hour)
 ✅ Explosion Candle
-✅ שומר signals_log.csv + near_miss_log.csv לניתוח עתידי
+✅ שומר signals_log.csv + near_miss_log.csv
+✅ טעינת watchlist דינמית מ-daily_watchlist.csv
+✅ פרמטרים דינמיים מ-bot_config.json
+✅ ניהול סיכון יומי (Daily Loss Limit)
 """
 
-import os, csv, time, logging
+import os, csv, time, logging, json
 from datetime import datetime, timezone, timedelta
 import requests
 import pandas as pd
@@ -52,6 +55,7 @@ def _f(k,d):
 ACCOUNT   = _f("ACCOUNT_SIZE", 250.0)
 RISK      = ACCOUNT * 0.03
 BRAKE     = -1.5
+DAILY_LOSS_LIMIT = ACCOUNT * 0.05   # 5% הפסד יומי מירבי
 
 PHASES = {
     "KILL_ZONE":  {"alpha":80,"vol":140,"label":"🔥 Kill Zone (09:30–10:15)"},
@@ -69,14 +73,22 @@ CORE_LIST = [
     "NKLA","PLUG","CHPT","OPEN","PTON","GME",
 ]
 
+def load_dynamic_config():
+    """טען פרמטרים מ-bot_config.json (למידה יומית)"""
+    if os.path.exists("bot_config.json"):
+        with open("bot_config.json", "r") as f:
+            return json.load(f)
+    return {"alpha_needed": 80, "vol_needed": 130}
+
 def load_watchlist():
+    """טען רשימת מעקב מ-daily_watchlist.csv (נוצר ע"י social_feeder)"""
     try:
         if os.path.exists("daily_watchlist.csv"):
             today = get_ny().strftime("%Y-%m-%d")
             syms = []
             with open("daily_watchlist.csv", "r") as f:
                 for row in csv.DictReader(f):
-                    if row.get("date") == today and float(row.get("score", 0)) > 0:
+                    if row.get("date") == today:
                         syms.append(row["symbol"])
             if syms:
                 log.info(f"📋 Watchlist דינמי: {len(syms)} מניות")
@@ -90,7 +102,7 @@ SIGNALS_LOG = "signals_log.csv"
 NEAR_LOG    = "near_miss_log.csv"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-log = logging.getLogger("v9.5")
+log = logging.getLogger("v10.0")
 
 WATCHLIST = load_watchlist()
 
@@ -246,7 +258,6 @@ def score(df, spy_5m=0.0):
         and (last["close"]-last["open"])/last["open"]>0.005
     )
 
-    # HOD Breakout
     day_high  = float(df["high"].max())
     prev_high = float(df["high"].iloc[:-1].max())
     avg_vol_1h = float(df["volume"].tail(12).mean())
@@ -287,9 +298,9 @@ def levels(price, atr):
     me   = round((t1+1.5*stop)/2.5,2)
     rr   = round((t1-price)/sd,1) if sd>0 else 0
     risk = round(qty*sd,2)
-    p_t1 = round(qty*(t1-price),2)
+    profit_t1 = round(qty*(t1-price),2)
     return {"stop":stop,"t1":t1,"t2":t2,"qty":qty,
-            "rr":rr,"risk":risk,"profit_t1":p_t1,"max_entry":me}
+            "rr":rr,"risk":risk,"profit_t1":profit_t1,"max_entry":me}
 
 # ══════════════════════════════════════════════
 # MESSAGES
@@ -341,7 +352,7 @@ def startup_msg(spy_day, phase):
     mode = "🛑 מצב צפייה" if brake else "🟢 מחפש כניסות"
     bl   = f"\n🔻 *MACRO BRAKE* — SPY {spy_day:+.1f}%" if brake else ""
     return (
-        f"🤖 *DAY-S-BOT v9.5*\n"
+        f"🤖 *DAY-S-BOT v10.0*\n"
         f"━━━━━━━━━━━━━━━━━\n"
         f"⏰ {time_status()}\n"
         f"💼 ${ACCOUNT:.0f} | סיכון: ${RISK:.0f}/עסקה\n"
@@ -371,12 +382,17 @@ def fallback_msg(top3):
 # MAIN
 # ══════════════════════════════════════════════
 def run():
-    log.info("🤖 DAY-S-BOT v9.5")
+    log.info("🤖 DAY-S-BOT v10.0")
     if not TOKEN or not CHAT_ID:
         raise SystemExit("❌ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID חסרים")
 
     _ensure(SIGNALS_LOG, SIG_FIELDS)
     _ensure(NEAR_LOG, NEAR_FIELDS)
+
+    # טעינת פרמטרים דינמיים (למידה יומית)
+    dyn_cfg = load_dynamic_config()
+    base_alpha = dyn_cfg.get("alpha_needed", 80)
+    base_vol   = dyn_cfg.get("vol_needed", 130)
 
     # Anti-spam — טוען סיגנלים שנשלחו היום
     sent_today = set()
@@ -391,9 +407,18 @@ def run():
 
     spy_day, spy_5m = get_spy()
     phase           = get_phase()
-    cfg             = PHASES.get(phase, PHASES["NORMAL"])
-    alpha_req       = cfg["alpha"]
-    vol_req         = cfg["vol"]
+    cfg_phase       = PHASES.get(phase, PHASES["NORMAL"])
+    
+    # התאמת דרישות לפי שלב השוק (דינמי)
+    alpha_req = base_alpha
+    vol_req   = base_vol
+    if phase == "KILL_ZONE":
+        alpha_req = max(65, base_alpha - 10)
+        vol_req   = max(100, base_vol - 20)
+    elif phase == "POWER_HOUR":
+        alpha_req = min(90, base_alpha + 5)
+        vol_req   = max(80, base_vol - 10)
+    
     today           = il_date()
     now_str         = il_str()
 
@@ -404,6 +429,20 @@ def run():
 
     if spy_day < BRAKE:
         send(f"🔻 *MACRO HANDBRAKE*\nSPY {spy_day:+.1f}% מהפתיחה\nלא מחפש כניסות היום 🏖️")
+        return
+
+    # ניהול סיכון יומי – קריאת הפסד מצטבר מהיום
+    daily_loss = 0.0
+    try:
+        df_log = pd.read_csv(SIGNALS_LOG)
+        df_log = df_log[df_log["date"] == today]
+        df_log["pnl_usd"] = pd.to_numeric(df_log["pnl_usd"], errors="coerce")
+        daily_loss = df_log["pnl_usd"].sum()
+    except:
+        pass
+    
+    if daily_loss <= -DAILY_LOSS_LIMIT:
+        send(f"🛑 *עצירת יומית* – הפסד מצטבר של ${abs(daily_loss):.0f} (מעל 5% מהקפיטל). מפסיק מסחר להיום.")
         return
 
     green_cnt = yellow_cnt = 0
