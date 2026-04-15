@@ -1,13 +1,6 @@
 """
-DAY-S-BOT v10.0 — DYNAMIC + SOCIAL WATCHLIST
-==============================================
-✅ מחירים מעוגלים
-✅ Market Phase (Kill Zone / Normal / Power Hour)
-✅ Explosion Candle
-✅ שומר signals_log.csv + near_miss_log.csv
-✅ טעינת watchlist דינמית מ-daily_watchlist.csv
-✅ פרמטרים דינמיים מ-bot_config.json
-✅ ניהול סיכון יומי (Daily Loss Limit)
+DAY-S-BOT v10.0 — AGGRESSIVE MODE (High Reward / Higher Risk)
+==============================================================
 """
 
 import os, csv, time, logging, json
@@ -47,15 +40,16 @@ except ImportError:
 # ══════════════════════════════════════════════
 TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN","").strip()
 CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID","").strip()
+AGGRESSIVE = os.environ.get("AGGRESSIVE_MODE", "false").lower() == "true"
 
 def _f(k,d):
     v=os.environ.get(k,"").strip()
     return float(v) if v else d
 
 ACCOUNT   = _f("ACCOUNT_SIZE", 250.0)
-RISK      = ACCOUNT * 0.03
+RISK      = ACCOUNT * 0.05   # 5% risk per trade (aggressive)
 BRAKE     = -1.5
-DAILY_LOSS_LIMIT = ACCOUNT * 0.05   # 5% הפסד יומי מירבי
+DAILY_LOSS_LIMIT = ACCOUNT * 0.08   # 8% daily loss limit (higher risk)
 
 PHASES = {
     "KILL_ZONE":  {"alpha":80,"vol":140,"label":"🔥 Kill Zone (09:30–10:15)"},
@@ -74,14 +68,12 @@ CORE_LIST = [
 ]
 
 def load_dynamic_config():
-    """טען פרמטרים מ-bot_config.json (למידה יומית)"""
     if os.path.exists("bot_config.json"):
         with open("bot_config.json", "r") as f:
             return json.load(f)
-    return {"alpha_needed": 80, "vol_needed": 130}
+    return {"alpha_needed": 70, "vol_needed": 110}   # lower thresholds for more signals
 
 def load_watchlist():
-    """טען רשימת מעקב מ-daily_watchlist.csv (נוצר ע"י social_feeder)"""
     try:
         if os.path.exists("daily_watchlist.csv"):
             today = get_ny().strftime("%Y-%m-%d")
@@ -201,7 +193,8 @@ def send(msg):
 # ══════════════════════════════════════════════
 def get_bars(sym, period="5d", interval="5m"):
     try:
-        df=yf.Ticker(sym).history(period=period,interval=interval)
+        ticker = yf.Ticker(sym)
+        df = ticker.history(period=period, interval=interval, timeout=10)
         if df.empty: return pd.DataFrame()
         df.columns=[c.lower() for c in df.columns]
         return df[["open","high","low","close","volume"]].dropna().tail(80).reset_index(drop=True)
@@ -287,20 +280,27 @@ def score(df, spy_5m=0.0):
         "hod_break":hod_break,"rvol_1h":round(rvol_1h,1),
     }
 
-def levels(price, atr):
-    sd   = max(atr*1.5, price*0.02)
-    stop = round(price-sd,2)
-    t1   = round(price+sd*2,2)
-    t2   = round(price+sd*4,2)
-    qty  = max(1,int(RISK/sd))
-    if qty*price>ACCOUNT*0.45:
-        qty=max(1,int(ACCOUNT*0.45/price))
-    me   = round((t1+1.5*stop)/2.5,2)
-    rr   = round((t1-price)/sd,1) if sd>0 else 0
-    risk = round(qty*sd,2)
-    profit_t1 = round(qty*(t1-price),2)
-    return {"stop":stop,"t1":t1,"t2":t2,"qty":qty,
-            "rr":rr,"risk":risk,"profit_t1":profit_t1,"max_entry":me}
+# ══════════════════════════════════════════════
+# LEVELS (AGGRESSIVE MODE)
+# ══════════════════════════════════════════════
+def levels(price, atr, aggressive=True):
+    if aggressive:
+        sd = max(atr * 2.0, price * 0.04)
+    else:
+        sd = max(atr * 1.5, price * 0.02)
+    
+    stop = round(price - sd, 2)
+    t1   = round(price + sd * 2.5, 2)
+    t2   = round(price + sd * 5.0, 2)
+    qty  = max(1, int(RISK / sd))
+    if qty * price > ACCOUNT * 0.45:
+        qty = max(1, int(ACCOUNT * 0.45 / price))
+    me   = round((t1 + 1.5*stop) / 2.5, 2)
+    rr   = round((t1 - price) / sd, 1)
+    risk = round(qty * sd, 2)
+    profit_t1 = round(qty * (t1 - price), 2)
+    return {"stop":stop, "t1":t1, "t2":t2, "qty":qty,
+            "rr":rr, "risk":risk, "profit_t1":profit_t1, "max_entry":me}
 
 # ══════════════════════════════════════════════
 # MESSAGES
@@ -352,7 +352,7 @@ def startup_msg(spy_day, phase):
     mode = "🛑 מצב צפייה" if brake else "🟢 מחפש כניסות"
     bl   = f"\n🔻 *MACRO BRAKE* — SPY {spy_day:+.1f}%" if brake else ""
     return (
-        f"🤖 *DAY-S-BOT v10.0*\n"
+        f"🤖 *DAY-S-BOT v10.0 AGGRESSIVE*\n"
         f"━━━━━━━━━━━━━━━━━\n"
         f"⏰ {time_status()}\n"
         f"💼 ${ACCOUNT:.0f} | סיכון: ${RISK:.0f}/עסקה\n"
@@ -382,19 +382,17 @@ def fallback_msg(top3):
 # MAIN
 # ══════════════════════════════════════════════
 def run():
-    log.info("🤖 DAY-S-BOT v10.0")
+    log.info("🤖 DAY-S-BOT v10.0 AGGRESSIVE")
     if not TOKEN or not CHAT_ID:
         raise SystemExit("❌ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID חסרים")
 
     _ensure(SIGNALS_LOG, SIG_FIELDS)
     _ensure(NEAR_LOG, NEAR_FIELDS)
 
-    # טעינת פרמטרים דינמיים (למידה יומית)
     dyn_cfg = load_dynamic_config()
-    base_alpha = dyn_cfg.get("alpha_needed", 80)
-    base_vol   = dyn_cfg.get("vol_needed", 130)
+    base_alpha = dyn_cfg.get("alpha_needed", 70)
+    base_vol   = dyn_cfg.get("vol_needed", 110)
 
-    # Anti-spam — טוען סיגנלים שנשלחו היום
     sent_today = set()
     try:
         today_check = il_date()
@@ -409,12 +407,11 @@ def run():
     phase           = get_phase()
     cfg_phase       = PHASES.get(phase, PHASES["NORMAL"])
     
-    # התאמת דרישות לפי שלב השוק (דינמי)
     alpha_req = base_alpha
     vol_req   = base_vol
     if phase == "KILL_ZONE":
-        alpha_req = max(65, base_alpha - 10)
-        vol_req   = max(100, base_vol - 20)
+        alpha_req = max(60, base_alpha - 10)
+        vol_req   = max(90, base_vol - 20)
     elif phase == "POWER_HOUR":
         alpha_req = min(90, base_alpha + 5)
         vol_req   = max(80, base_vol - 10)
@@ -431,7 +428,6 @@ def run():
         send(f"🔻 *MACRO HANDBRAKE*\nSPY {spy_day:+.1f}% מהפתיחה\nלא מחפש כניסות היום 🏖️")
         return
 
-    # ניהול סיכון יומי – קריאת הפסד מצטבר מהיום
     daily_loss = 0.0
     try:
         df_log = pd.read_csv(SIGNALS_LOG)
@@ -442,7 +438,7 @@ def run():
         pass
     
     if daily_loss <= -DAILY_LOSS_LIMIT:
-        send(f"🛑 *עצירת יומית* – הפסד מצטבר של ${abs(daily_loss):.0f} (מעל 5% מהקפיטל). מפסיק מסחר להיום.")
+        send(f"🛑 *עצירת יומית* – הפסד מצטבר של ${abs(daily_loss):.0f} (מעל 8% מהקפיטל). מפסיק מסחר להיום.")
         return
 
     green_cnt = yellow_cnt = 0
@@ -456,7 +452,7 @@ def run():
             m = score(df, spy_5m)
             if m is None: continue
 
-            lv = levels(m["price"], m["atr"])
+            lv = levels(m["price"], m["atr"], aggressive=AGGRESSIVE)
             log.info(
                 f"  {sym}: ${m['price']} sc={m['score']} "
                 f"vol={m['vol_pct']}% rs={m['rs']:+.2f}%"
@@ -471,8 +467,8 @@ def run():
                 "spy_day":spy_day,
             }
 
-            if (m["score"]>=alpha_req and m["vol_pct"]>=vol_req
-                    and lv["rr"]>=1.5 and green_cnt<MAX_GREEN):
+            if (m["score"] >= alpha_req and m["vol_pct"] >= vol_req
+                    and lv["rr"] >= 2.0 and green_cnt < MAX_GREEN):
                 if sym in sent_today:
                     log.info(f"  ⏭️ {sym}: כבר נשלח היום")
                     continue
@@ -488,15 +484,15 @@ def run():
                 log.info(f"  ✅ GREEN: {sym}")
                 time.sleep(2)
 
-            elif (m["score"]>=alpha_req-10
-                    and m["vol_pct"]>=vol_req-20
+            elif (m["score"] >= alpha_req-10
+                    and m["vol_pct"] >= vol_req-20
                     and yellow_cnt<2):
                 send(yellow_msg(sym, m, lv, alpha_req, vol_req))
                 log_near({**base_row,"alpha_needed":alpha_req,"vol_needed":vol_req})
                 yellow_cnt+=1
                 time.sleep(1)
 
-            elif m["score"]>=55:
+            elif m["score"] >= 55:
                 candidates.append({**m,"sym":sym,"t1":lv["t1"],"stop":lv["stop"]})
                 log_near({**base_row,"alpha_needed":alpha_req,"vol_needed":vol_req})
 
@@ -505,15 +501,22 @@ def run():
         except Exception as e:
             log.error(f"❌ {sym}: {e}")
 
-    if green_cnt==0 and yellow_cnt==0:
-        top3=sorted(
+    if green_cnt == 0 and yellow_cnt == 0:
+        top3 = sorted(
             candidates,
-            key=lambda x: x["score"]*0.45+min(x["vol_pct"],200)*0.3+x["rs"]*10*0.25,
+            key=lambda x: x["score"]*0.45 + min(x["vol_pct"],200)*0.3 + x["rs"]*10*0.25,
             reverse=True
         )[:3]
         send(fallback_msg(top3))
 
     log.info(f"סיום: {green_cnt} ירוקים, {yellow_cnt} צהובים")
 
-if __name__=="__main__":
-    run()
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception as e:
+        import traceback
+        error_msg = traceback.format_exc()
+        print(f"❌ קריסה כללית:\n{error_msg}")
+        send(f"❌ בוט קרס: {str(e)[:200]}")
+        raise
