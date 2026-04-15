@@ -116,3 +116,4 @@ def generate_watchlist():
 
 if __name__ == "__main__":
     generate_watchlist()
+final_list = core[:15] + [sym for sym, _ in candidates[:10] if sym not in core[:15]]
