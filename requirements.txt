@@ -2,4 +2,6 @@ yfinance
 pandas
 numpy
 requests
+praw
+feedparser
 pytz
