@@ -57,7 +57,7 @@ PHASES = {
     "POWER_HOUR": {"alpha":85,"vol":115,"label":"⚡ Power Hour (15:30–16:00)"},
 }
 MAX_GREEN = 2
-MIN_PRICE, MAX_PRICE = 2.0, 20.0
+MIN_PRICE, MAX_PRICE = 2.0, 30.0
 
 CORE_LIST = [
     "MARA","RIOT","CLSK","CIFR","WULF","MSTR",
