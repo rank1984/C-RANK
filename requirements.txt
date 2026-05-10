@@ -1,7 +1,5 @@
-yfinance
+﻿yfinance
 pandas
 numpy
 requests
-feedparser
 pytz
-praw
