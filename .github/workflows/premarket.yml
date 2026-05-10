@@ -1,36 +1,30 @@
-name: Premarket Scanner
+name: 1 - Premarket Scanner
 
 on:
   schedule:
-    - cron: "15 10 * * 1-5"
+    - cron: '30 12 * * 1-5' # 15:30 IL time (08:30 NY time)
   workflow_dispatch:
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
       contents: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Install
-        run: pip install yfinance pandas pytz
-
-      - name: Run Scanner
+          python-version: '3.11'
+      - run: pip install yfinance pandas requests pytz
+      - name: Run Premarket Scanner
         run: python premarket_scanner.py
-
-      - name: Save Watchlist
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Commit Watchlist
         run: |
-          git config user.name  "DAY-S-BOT"
+          git config user.name "DAY-S-BOT"
           git config user.email "bot@days-bot.com"
-          git add daily_watchlist.csv 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "📋 Watchlist $(date -u '+%Y-%m-%d')"
+          git add daily_watchlist.csv || true
+          git commit -m "📋 Daily Watchlist Update" || true
           git push || true
