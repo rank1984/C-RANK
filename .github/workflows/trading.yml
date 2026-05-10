@@ -1,0 +1,32 @@
+name: 2 - Trading Bot
+
+on:
+  schedule:
+    - cron: '*/15 13-20 * * 1-5' # רץ כל 15 דקות בזמן המסחר
+  workflow_dispatch:
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Run Trading Bot
+        run: python trading_bot.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ACCOUNT_SIZE: "250"
+          AGGRESSIVE_MODE: "true"
+      - name: Commit Logs
+        run: |
+          git config user.name "DAY-S-BOT"
+          git config user.email "bot@days-bot.com"
+          git add signals_log.csv near_miss_log.csv || true
+          git commit -m "📊 Update Trading Logs" || true
+          git push || true
