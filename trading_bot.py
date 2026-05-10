@@ -1,6 +1,44 @@
 """
 DAY-S-BOT v11.1 — TEST & SWING MODE
 ==============================================================
+import os, requests, logging, csv
+from datetime import datetime
+
+# הגדרות
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","").strip()
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","").strip()
+WATCHLIST_FILE = "daily_watchlist.csv"
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+log = logging.getLogger("TestBot")
+
+def send_telegram(msg):
+    if not TOKEN or not CHAT_ID:
+        log.error("❌ TOKEN או CHAT_ID חסרים ב-Secrets!")
+        return
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    try:
+        res = requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+        log.info(f"Telegram response: {res.status_code}")
+    except Exception as e:
+        log.error(f"Error: {e}")
+
+def run():
+    # 1. שליחת הודעה מידית לבדיקת תקינות
+    log.info("🚀 מפעיל בדיקת דופק...")
+    send_telegram(f"✅ *בדיקת קשר הצליחה!*\nהבוט מחובר ל-GitHub וממתין לפתיחת המסחר.\nזמן הרצה: {datetime.now().strftime('%H:%M:%S')}")
+
+    # 2. בדיקת קובץ המניות
+    if not os.path.exists(WATCHLIST_FILE):
+        log.warning("הקובץ daily_watchlist.csv לא נמצא - זה תקין כי היום יום ראשון.")
+        send_telegram("ℹ️ רשימת המעקב ריקה כרגע (שוק סגור).")
+        return
+
+    log.info("הקובץ נמצא, ממשיך בסריקה...")
+
+if __name__ == "__main__":
+    run()
+
 """
 
 import os, csv, time, logging, requests
