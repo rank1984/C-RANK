@@ -8,18 +8,23 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
+from itertools import product
 
-# ══════════════════════════════════════════════
-# DAYS-BOT V4 — Dual-Mode Risk Engine
-# ══════════════════════════════════════════════
-# מצב 1 (AGGRESSIVE): תיק < $1,000 — סיכון גבוה, A+ בלבד, יחס 1:3
-# מצב 2 (MODERATE):   תיק >= $1,000 — סיכון מתון, A ו-A+, יחס 1:2.5
-# ══════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
+# DAYS-BOT V6.0 — Auto Optimization & Self-Learning Engine
+# ══════════════════════════════════════════════════════════════════════
+# ארכיטקטורה:
+# 1. Scanner & Execution Engine (Slippage + Risk Framework)
+# 2. Performance Logger & Math Expectancy Engine
+# 3. Dynamic Regime Protection (Mode Switching Framework)
+# 4. Auto Optimizer Loop (Grid Search + Stability Penalty Feedback)
+# ══════════════════════════════════════════════════════════════════════
 
 ALPACA_API_KEY    = os.environ.get("ALPACA_API_KEY", "").strip()
 ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "").strip()
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+FINNHUB_API_KEY   = os.environ.get("FINNHUB_API_KEY", "").strip()
 
 HEADERS = {
     "APCA-API-KEY-ID": ALPACA_API_KEY,
@@ -27,33 +32,124 @@ HEADERS = {
     "accept": "application/json"
 }
 
-# ── פרמטרי סריקה בסיסיים ──
-MIN_PRICE   = 1.5
-MAX_PRICE   = 25.0
-MIN_VOLUME  = 500_000
-MAX_FLOAT   = 200_000_000
+# ── פרמטרי סריקה בסיסיים ומערך אופטימיזציה ──
+MIN_PRICE            = 1.5
+MAX_PRICE            = 25.0
+MIN_VOLUME           = 500_000
+MAX_FLOAT            = 200_000_000
+AGGRESSIVE_THRESHOLD = 1_000.0
 
-# ── סף מעבר בין מצבים ──
-AGGRESSIVE_THRESHOLD = 1_000.0   # מתחת ל-$1,000 = מצב אגרסיבי
-PORTFOLIO_FILE       = "portfolio_state.json"
-STATE_FILE           = "active_trades.json"
-LOG_FILE             = "trade_log.csv"
-COOLDOWN_MINUTES     = 60
-MAX_DAILY_TRADES     = 3          # PDT Rule — מקסימום 3 Day Trades בשבוע
+# קבצי מערכת
+PORTFOLIO_FILE   = "portfolio_state.json"
+STATE_FILE       = "active_trades.json"
+LOG_FILE         = "trade_log.csv"
+BEST_CONFIG_FILE = "best_config.json"
+
+COOLDOWN_MINUTES = 60
+MAX_DAILY_TRADES = 3  # PDT Protection
+
+# ── רשת אופטימיזציה (Param Grid V6) ──
+PARAM_GRID = {
+    "rvol_min":   [2.5, 3.0, 4.0],
+    "gap_min":    [5.0, 10.0, 15.0],
+    "float_max":  [50_000_000, 100_000_000, 200_000_000],
+    "risk_pct":   [0.05, 0.10, 0.15],
+    "rr_ratio":   [2.0, 2.5, 3.0],
+    "score_min":  [7, 8, 9]
+}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-log = logging.getLogger("DAYS_BOT_V4")
+log = logging.getLogger("DAYS_BOT_V6_0")
 
-alerted_symbols  = {}
+alerted_symbols   = {}
 daily_trade_count = {"date": "", "count": 0}
 
 
-# ══════════════════════════════════════════════
-# ניהול מצב התיק (Portfolio State)
-# ══════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
+# 🔥 רכיב 4 החדש: מנוע האופטימיזציה האוטונומי (Auto Optimizer Core)
+# ══════════════════════════════════════════════════════════════════════
+
+def run_auto_optimization():
+    """סורק את היסטוריית העסקאות האמיתית, מריץ סימולציות ומוצא את הסטאפ המנצח"""
+    log.info("🧠 Auto Optimizer: Starting parameter matrix optimization...")
+    if not os.path.exists(LOG_FILE):
+        log.info("🧠 Auto Optimizer: No trade history found yet. Skipping simulation.")
+        return None, 0.0
+
+    try:
+        df = pd.read_csv(LOG_FILE).dropna()
+        # מניעת Overfitting על מדגם קטן מדי - דורש לפחות 10 עסקאות סגורות
+        if len(df) < 10:
+            log.info(f"🧠 Auto Optimizer: Insufficient data ({len(df)}/10 trades). Cold-start protection active.")
+            return None, 0.0
+
+        keys = list(PARAM_GRID.keys())
+        values = list(PARAM_GRID.values())
+
+        best_score = -999.0
+        best_config = None
+
+        # ריצה על מכפלת כל הקומבינציות האפשריות ברשת
+        for combo in product(*values):
+            config = dict(zip(keys, combo))
+            
+            # סימולציית פילטרים מקומית על ה-Dataframe
+            filtered = df[
+                (df["rvol"] >= config["rvol_min"]) &
+                (df["gap"] >= config["gap_min"]) &
+                (df["float"] <= config["float_max"]) &
+                (df["score"] >= config["score_min"])
+            ]
+
+            if len(filtered) == 0:
+                continue
+
+            wins_count = len(filtered[filtered["outcome"] == "WIN"])
+            win_rate = wins_count / len(filtered)
+
+            avg_win = filtered[filtered["outcome"] == "WIN"]["pnl"].mean() if wins_count > 0 else 0.0
+            avg_loss = abs(filtered[filtered["outcome"] == "LOSS"]["pnl"].mean()) if len(filtered) > wins_count else 0.0
+
+            # חישוב תוחלת מתמטית מותאמת
+            expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
+
+            # קנס יציבות (Stability Penalty) لمنע התאמת יתר לפלחים קטנים מדי
+            stability_penalty = np.log(len(filtered) + 1)
+            score = expectancy * stability_penalty
+
+            if score > best_score:
+                best_score = score
+                best_config = config
+
+        if best_config:
+            # שמירת הקונפיגורציה האופטימלית לקובץ מערכת
+            output = {"best_config": best_config, "score": float(best_score), "optimized_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            with open(BEST_CONFIG_FILE, "w") as f:
+                json.dump(output, f, indent=4)
+            log.info(f"🧠 Auto Optimizer: Success! New configuration saved. Score: {best_score:.2f}")
+            return best_config, best_score
+
+    except Exception as e:
+        log.error(f"🧠 Auto Optimizer Error: {e}")
+    
+    return None, 0.0
+
+def load_optimized_config():
+    """טוען את החוקים המשופרים שהמערכת גזרה מהמסחר של עצמה"""
+    if not os.path.exists(BEST_CONFIG_FILE):
+        return None
+    try:
+        with open(BEST_CONFIG_FILE, "r") as f:
+            return json.load(f).get("best_config")
+    except:
+        return None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ניהול מצב התיק ופרופילי סיכון (Regime Detector & Balance Control)
+# ══════════════════════════════════════════════════════════════════════
 
 def load_portfolio():
-    """טוען את מצב התיק הנוכחי מהקובץ"""
     defaults = {"balance": 250.0, "mode": "AGGRESSIVE", "peak_balance": 250.0}
     if not os.path.exists(PORTFOLIO_FILE):
         save_portfolio(defaults)
@@ -69,50 +165,41 @@ def save_portfolio(data):
         json.dump(data, f, indent=4)
 
 def get_risk_profile(balance: float) -> dict:
-    """
-    מחזיר את פרופיל הסיכון המתאים לפי יתרת התיק.
-    מתחת ל-$1,000 → AGGRESSIVE
-    מעל $1,000    → MODERATE
-    """
+    """קביעת פרופיל סיכון בסיסי במקרה שאין עדיין קונפיגורציה מאופטמזת"""
     if balance < AGGRESSIVE_THRESHOLD:
         return {
             "mode":           "AGGRESSIVE",
-            "risk_pct":       0.18,         # 18% מהתיק לעסקה
-            "rr_ratio":       3.0,          # יחס סיכוי:סיכון 1:3
-            "min_score":      10,           # A+ בלבד
+            "risk_pct":       0.18,
+            "rr_ratio":       3.0,
+            "min_score":      10,
             "min_grade":      "A+",
-            "max_risk_pct":   0.12,         # ביטול עסקה אם סיכון > 12% ממחיר הכניסה
+            "max_risk_pct":   0.12,
         }
     else:
         return {
             "mode":           "MODERATE",
-            "risk_pct":       0.06,         # 6% מהתיק לעסקה
-            "rr_ratio":       2.5,          # יחס סיכוי:סיכון 1:2.5
-            "min_score":      8,            # A ו-A+
+            "risk_pct":       0.06,
+            "rr_ratio":       2.5,
+            "min_score":      8,
             "min_grade":      "A",
             "max_risk_pct":   0.08,
         }
 
 def update_balance_after_trade(pnl: float):
-    """מעדכן את יתרת התיק לאחר סגירת עסקה ומחליף מצב במידת הצורך"""
     portfolio = load_portfolio()
     old_balance = portfolio["balance"]
     old_mode    = portfolio["mode"]
 
-    portfolio["balance"] += pnl
-    portfolio["balance"]  = round(portfolio["balance"], 2)
+    portfolio["balance"] = round(portfolio["balance"] + pnl, 2)
 
-    # עדכון שיא התיק
     if portfolio["balance"] > portfolio.get("peak_balance", old_balance):
         portfolio["peak_balance"] = portfolio["balance"]
 
-    # קביעת מצב חדש
     new_profile = get_risk_profile(portfolio["balance"])
     portfolio["mode"] = new_profile["mode"]
 
     save_portfolio(portfolio)
 
-    # שליחת הודעה אם יש מעבר בין מצבים
     if old_mode != portfolio["mode"]:
         emoji = "🟢" if portfolio["mode"] == "MODERATE" else "🔴"
         msg = (f"{emoji} *מעבר מצב סיכון!*\n"
@@ -125,13 +212,7 @@ def update_balance_after_trade(pnl: float):
 
     return portfolio
 
-
-# ══════════════════════════════════════════════
-# PDT Rule — מעקב מספר עסקאות יומי
-# ══════════════════════════════════════════════
-
 def can_trade_today() -> bool:
-    """מוודא שלא חרגנו מ-3 Day Trades בשבוע (PDT Rule)"""
     global daily_trade_count
     today = datetime.now().strftime("%Y-%m-%d")
     if daily_trade_count["date"] != today:
@@ -146,14 +227,31 @@ def register_trade():
     daily_trade_count["count"] += 1
 
 
-# ══════════════════════════════════════════════
-# מנוע News Catalyst
+# ══════════════════════════════════════════════════════════════════════
+# מנוע News Catalyst משודרג (Finnhub API Core)
 # ══════════════════════════════════════════════
 
 def check_news_catalyst(sym: str):
     keywords = ["earnings", "revenue", "contract", "fda", "buyout", "merger",
                 "partnership", "deal", "quarterly", "approval", "alliance",
                 "guidance", "upgrade", "acquisition"]
+    
+    if FINNHUB_API_KEY:
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            url = f"https://finnhub.io/api/v1/company-news?symbol={sym}&from={yesterday}&to={today}&token={FINNHUB_API_KEY}"
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                news_feed = resp.json()
+                for item in news_feed[:10]:
+                    title = item.get('headline', '').lower()
+                    if any(kw in title for kw in keywords):
+                        return True, item.get('headline')
+                return False, "No Finnhub Catalyst"
+        except Exception as e:
+            log.warning(f"Finnhub error for {sym}, falling back to yfinance: {e}")
+
     try:
         ticker     = yf.Ticker(sym)
         news_feed  = ticker.news
@@ -171,9 +269,9 @@ def check_news_catalyst(sym: str):
         return False, f"News Error: {e}"
 
 
-# ══════════════════════════════════════════════
-# סריקת גיינרים דינמית
-# ══════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
+# סריקת גיינרים דינמית וחישוב ביטחון AI
+# ══════════════════════════════════════════════════════════════════════
 
 def get_dynamic_gainers():
     url = "https://data.alpaca.markets/v1beta1/screener/stocks/movers?market_type=stocks"
@@ -200,16 +298,28 @@ def get_dynamic_gainers():
         log.error(f"Error fetching gainers: {e}")
         return []
 
+def calculate_ai_confidence(rvol: float, gap: float, float_shares: float, has_news: bool, above_vwap: bool, above_pm_high: bool) -> int:
+    confidence = 50.0
+    if has_news:                  confidence += 15
+    if rvol > 5.0:                confidence += 12
+    elif rvol > 3.0:              confidence += 7
+    if float_shares < 20_000_000: confidence += 15
+    elif float_shares < 50_000_000: confidence += 10
+    if above_vwap and above_pm_high: confidence += 10
+    elif above_vwap:              confidence += 4
+    if 15.0 <= gap <= 35.0:       confidence += 8
+    elif gap > 35.0:              confidence += 3
 
-# ══════════════════════════════════════════════
-# ניתוח טכני + מערכת ניקוד דינמית
-# ══════════════════════════════════════════════
+    if has_news and rvol > 5.0 and float_shares < 50_000_000:
+        confidence += 12  
+    return int(min(max(confidence, 10), 99))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ניתוח טכני משולב אופטימיזציה ולוגיקת ביצוע ריאלית
+# ══════════════════════════════════════════════════════════════════════
 
 def analyze_and_score_stock(sym: str, profile: dict):
-    """
-    מנתח מניה ומחשב ציון.
-    הסף המינימלי לכניסה מגיע מה-profile (8 במצב MODERATE, 10 במצב AGGRESSIVE).
-    """
     try:
         ticker      = yf.Ticker(sym)
         info        = ticker.info
@@ -243,7 +353,7 @@ def analyze_and_score_stock(sym: str, profile: dict):
         df['VWAP'] = df['TPV'].cumsum() / df['Volume'].cumsum()
 
         cur       = df.iloc[-1]
-        last_close = cur['Close']
+        raw_price = cur['Close']
         last_vwap  = cur['VWAP']
 
         df['Datetime'] = pd.to_datetime(df['Datetime']).dt.tz_convert('US/Eastern')
@@ -254,107 +364,128 @@ def analyze_and_score_stock(sym: str, profile: dict):
         avg_vol   = df['Volume'].rolling(10).mean().iloc[-1]
         rvol      = cur['Volume'] / avg_vol if avg_vol > 0 else 0
 
-        # ── ניקוד ──
+        # ── 🔥 שילוב מנוע הלימוד העצמי (V6 Optimization Engine Filter) ──
+        opt_config = load_optimized_config()
+        if opt_config:
+            if rvol < opt_config["rvol_min"]:
+                log.info(f"🧠 Filter Blocked [{sym}]: RVOL {rvol:.1f} < Optimal {opt_config['rvol_min']}")
+                return None
+            if gap_pct < opt_config["gap_min"]:
+                log.info(f"🧠 Filter Blocked [{sym}]: Gap {gap_pct:.1f}% < Optimal {opt_config['gap_min']}%")
+                return None
+            if float_shares > opt_config["float_max"]:
+                log.info(f"🧠 Filter Blocked [{sym}]: Float {float_shares:,} > Optimal {opt_config['float_max']:,}")
+                return None
+            
+            # החלת ניהול סיכונים ויעדים שעברו אופטימיזציה
+            current_risk_pct = opt_config["risk_pct"]
+            current_rr_ratio = opt_config["rr_ratio"]
+            current_min_score = opt_config["score_min"]
+        else:
+            # Fallback בטוח לפרמטרים הדינמיים של התיק מ-V5
+            current_risk_pct = profile["risk_pct"]
+            current_rr_ratio = profile["rr_ratio"]
+            current_min_score = profile["min_score"]
+
+        # חישוב הציון הטכני
         score = 0
-        if rvol > 3.0:               score += 2
-        if last_close > last_vwap:   score += 2
-        if last_close > pm_high:     score += 2
-        if float_shares < 50_000_000: score += 2
-        if gap_pct > 10.0:           score += 2
+        if rvol > 3.0:                score += 2
+        if raw_price > last_vwap:     score += 2
+        if raw_price > pm_high:       score += 2
+        if float_shares < 50_000_000:  score += 2
+        if gap_pct > 10.0:            score += 2
 
         has_news, news_title = check_news_catalyst(sym)
         if has_news:
             score += 2
-            log.info(f"📰 Catalyst: {sym} — {news_title}")
 
-        # סף מינימלי דינמי לפי מצב
-        if score < profile["min_score"]:
+        if score < current_min_score:
             return None
 
         grade = "A+" if score >= 10 else "A"
 
-        # ── ניהול סיכונים ──
+        # החלת קנס Slippage ריאלי של 0.15% על פקודת המרקט
+        slippage_pct = 0.0015
+        entry_price  = round(raw_price * (1 + slippage_pct), 2)
+
         stop_loss   = cur['Low'] - 0.02
-        risk_amount = last_close - stop_loss
+        risk_amount = entry_price - stop_loss
         if risk_amount <= 0:
             return None
 
-        # ביטול עסקה אם הסטופ רחוק מדי ביחס למחיר
-        if risk_amount / last_close > profile["max_risk_pct"]:
+        # מניעת עסקאות עם סיכון טכני קיצוני מדי לפי פרופיל השוק
+        max_allowed_risk = profile["max_risk_pct"] if not opt_config else 0.12
+        if risk_amount / entry_price > max_allowed_risk:
             return None
 
-        portfolio = load_portfolio()
-        balance   = portfolio["balance"]
-        dollar_risk = balance * profile["risk_pct"]
-        shares    = int(dollar_risk / risk_amount)
+        above_vwap    = entry_price > last_vwap
+        above_pm_high = entry_price > pm_high
+        ai_pct = calculate_ai_confidence(rvol, gap_pct, float_shares, has_news, above_vwap, above_pm_high)
+
+        portfolio   = load_portfolio()
+        dollar_risk = portfolio["balance"] * current_risk_pct
+        shares      = int(dollar_risk / risk_amount)
         if shares == 0:
             return None
 
-        cost   = round(shares * last_close, 2)
-        target = round(last_close + (risk_amount * profile["rr_ratio"]), 2)
+        cost   = round(shares * entry_price, 2)
+        target = round(entry_price + (risk_amount * current_rr_ratio), 2)
 
         return {
-            "symbol":     sym,
-            "price":      last_close,
-            "pm_high":    round(pm_high, 2),
-            "vwap":       round(last_vwap, 2),
-            "stop":       round(stop_loss, 2),
-            "target":     target,
-            "shares":     shares,
-            "cost":       cost,
-            "score":      score,
-            "grade":      grade,
-            "rvol":       round(rvol, 1),
-            "float":      float_shares,
-            "gap":        round(gap_pct, 1),
-            "news_title": news_title if has_news else "No Catalyst",
-            "mode":       profile["mode"],
-            "rr_ratio":   profile["rr_ratio"],
+            "symbol":        sym,
+            "raw_price":     round(raw_price, 2),
+            "price":         entry_price,
+            "pm_high":       round(pm_high, 2),
+            "vwap":          round(last_vwap, 2),
+            "stop":          round(stop_loss, 2),
+            "target":        target,
+            "shares":        shares,
+            "cost":          cost,
+            "score":         score,
+            "grade":         grade,
+            "ai_pct":        ai_pct,
+            "rvol":          round(rvol, 1),
+            "float":         float_shares,
+            "gap":           round(gap_pct, 1),
+            "news_title":    news_title if has_news else "No Catalyst",
+            "mode":          profile["mode"],
+            "rr_ratio":      current_rr_ratio,
+            "slippage_paid": round(entry_price - raw_price, 3)
         }
     except Exception as e:
         log.error(f"Analysis error {sym}: {e}")
         return None
 
 
-# ══════════════════════════════════════════════
-# מעקב פוזיציות פתוחות
-# ══════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
+# מעקב פוזיציות וניהול קבצים
+# ══════════════════════════════════════════════════════════════════════
 
 def load_active_trades():
-    if not os.path.exists(STATE_FILE):
-        return {}
+    if not os.path.exists(STATE_FILE): return {}
     try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+        with open(STATE_FILE, "r") as f: return json.load(f)
+    except: return {}
 
 def save_active_trades(trades):
-    with open(STATE_FILE, "w") as f:
-        json.dump(trades, f, indent=4)
+    with open(STATE_FILE, "w") as f: json.dump(trades, f, indent=4)
 
 def track_open_positions():
     active = load_active_trades()
-    if not active:
-        return
+    if not active: return
 
-    symbols_str = ",".join(active.keys())
     try:
-        url      = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={symbols_str}&feed=iex"
+        url      = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={','.join(active.keys())}&feed=iex"
         snap_res = requests.get(url, headers=HEADERS).json()
 
         for sym in list(active.keys()):
-            if sym not in snap_res or not snap_res[sym]:
-                continue
+            if sym not in snap_res or not snap_res[sym]: continue
             cur_price = snap_res[sym]['dailyBar'].get('c', 0)
-            if cur_price == 0:
-                continue
+            if cur_price == 0: continue
 
-            trade  = active[sym]
-            target = trade['target']
-            stop   = trade['stop']
-            win    = cur_price >= target
-            loss   = cur_price <= stop
+            trade = active[sym]
+            win   = cur_price >= trade['target']
+            loss  = cur_price <= trade['stop']
 
             if win or loss:
                 entry_time = datetime.strptime(trade['timestamp'], '%Y-%m-%d %H:%M:%S')
@@ -369,194 +500,15 @@ def track_open_positions():
                     "mode":            trade.get('mode', 'UNKNOWN'),
                     "score":           trade['score'],
                     "grade":           trade['grade'],
+                    "ai_pct":          trade.get('ai_pct', 50),
                     "rvol":            trade['rvol'],
                     "gap":             trade['gap'],
                     "float":           trade['float'],
                     "entry_price":     trade['price'],
-                    "stop_loss":       stop,
-                    "target":          target,
+                    "stop_loss":       trade['stop'],
+                    "target":          trade['target'],
                     "exit_price":      round(cur_price, 2),
                     "duration_min":    duration,
                     "outcome":         outcome,
                     "pnl":             round(pnl, 2),
-                    "rr_ratio":        trade.get('rr_ratio', 2.5),
-                }
-                log_trade(log_data)
-
-                # עדכון יתרת תיק — זה יחליף מצב אוטומטית אם צריך
-                update_balance_after_trade(pnl)
-
-                portfolio = load_portfolio()
-                emoji     = "💰" if win else "🛑"
-                msg = (f"{emoji} *עסקה נסגרה: {sym} ({outcome})*\n"
-                       f"━━━━━━━━━━━━━━━━━\n"
-                       f"🚪 *יציאה:* `${round(cur_price, 2)}` | כניסה: `${trade['price']}`\n"
-                       f"💵 *רווח/הפסד:* `${round(pnl, 2)}`\n"
-                       f"⏱️ *זמן בעסקה:* `{duration} דקות`\n"
-                       f"📊 *ציון:* `{trade['score']}/12` (Grade {trade['grade']})\n"
-                       f"━━━━━━━━━━━━━━━━━\n"
-                       f"💼 *יתרת תיק:* `${portfolio['balance']}` | מצב: `{portfolio['mode']}`")
-                send_telegram(msg)
-                del active[sym]
-
-        save_active_trades(active)
-    except Exception as e:
-        log.error(f"Tracking error: {e}")
-
-
-# ══════════════════════════════════════════════
-# Dashboard סטטיסטי
-# ══════════════════════════════════════════════
-
-def send_daily_dashboard():
-    if not os.path.exists(LOG_FILE):
-        return
-    try:
-        df = pd.read_csv(LOG_FILE)
-        if df.empty or 'outcome' not in df.columns:
-            return
-
-        total   = len(df)
-        wins    = len(df[df['outcome'] == 'WIN'])
-        wr      = (wins / total) * 100 if total > 0 else 0
-        pnl_sum = df['pnl'].sum() if 'pnl' in df.columns else 0
-
-        grade_lines = ""
-        for g in ['A+', 'A']:
-            sub = df[df['grade'] == g]
-            if not sub.empty:
-                sw = len(sub[sub['outcome'] == 'WIN'])
-                grade_lines += f"• Grade {g}: `WR {(sw/len(sub))*100:.1f}%` ({len(sub)} עסקאות)\n"
-
-        # פילוח לפי מצב AGGRESSIVE / MODERATE
-        mode_lines = ""
-        if 'mode' in df.columns:
-            for m in ['AGGRESSIVE', 'MODERATE']:
-                sub = df[df['mode'] == m]
-                if not sub.empty:
-                    sw = len(sub[sub['outcome'] == 'WIN'])
-                    mp = sub['pnl'].sum()
-                    mode_lines += f"• {m}: `WR {(sw/len(sub))*100:.1f}%` | `${mp:.2f}` ({len(sub)} עסקאות)\n"
-
-        portfolio = load_portfolio()
-        msg = (f"📊 *DAYS-BOT V4 — DASHBOARD יומי*\n"
-               f"━━━━━━━━━━━━━━━━━\n"
-               f"📈 סה''כ עסקאות: `{total}` | Win Rate: `{wr:.1f}%`\n"
-               f"💰 רווח/הפסד מצטבר: `${pnl_sum:.2f}`\n"
-               f"💼 יתרת תיק: `${portfolio['balance']}` | מצב: `{portfolio['mode']}`\n\n"
-               f"🎯 *לפי ציון:*\n{grade_lines}\n"
-               f"⚙️ *לפי מצב מערכת:*\n{mode_lines}"
-               f"━━━━━━━━━━━━━━━━━\n"
-               f"המערכת מתייעלת אוטומטית לפי ביצועים.")
-        send_telegram(msg)
-    except Exception as e:
-        log.error(f"Dashboard error: {e}")
-
-
-# ══════════════════════════════════════════════
-# תשתיות עזר
-# ══════════════════════════════════════════════
-
-def market_status() -> bool:
-    ny = pytz.timezone("US/Eastern")
-    t  = datetime.now(ny)
-    if t.weekday() > 4:
-        return False
-    after_open  = (t.hour > 9) or (t.hour == 9 and t.minute >= 30)
-    before_close = t.hour < 16
-    return after_open and before_close
-
-def send_telegram(msg: str):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID,
-                                 "text": msg, "parse_mode": "Markdown"}, timeout=10)
-    except:
-        pass
-
-def log_trade(data: dict):
-    try:
-        pd.DataFrame([data]).to_csv(
-            LOG_FILE, mode='a',
-            header=not os.path.exists(LOG_FILE), index=False)
-    except:
-        pass
-
-
-# ══════════════════════════════════════════════
-# לולאת ריצה ראשית
-# ══════════════════════════════════════════════
-
-def run_scanner():
-    log.info("🚀 DAYS-BOT V4 — Dual-Mode Risk Engine Live")
-    portfolio = load_portfolio()
-    profile   = get_risk_profile(portfolio["balance"])
-
-    send_telegram(
-        f"🟢 *DAYS-BOT V4 Active*\n"
-        f"💼 יתרת תיק: `${portfolio['balance']}`\n"
-        f"⚙️ מצב: `{profile['mode']}`\n"
-        f"📌 סיכון לעסקה: `{profile['risk_pct']*100:.0f}%` | "
-        f"יחס R:R: `1:{profile['rr_ratio']}`\n"
-        f"🎯 ציון מינימלי: `{profile['min_score']}/12`"
-    )
-
-    last_scan_time = 0
-    dashboard_sent = False
-    candidates     = []
-
-    while True:
-        try:
-            ny_tz   = pytz.timezone("US/Eastern")
-            ny_time = datetime.now(ny_tz)
-
-            # Dashboard יומי בסיום מסחר
-            if ny_time.hour == 16 and ny_time.minute == 5 and not dashboard_sent:
-                send_daily_dashboard()
-                dashboard_sent = True
-            if ny_time.hour != 16:
-                dashboard_sent = False
-
-            if not market_status():
-                time.sleep(30)
-                continue
-
-            # מעקב פוזיציות פתוחות
-            track_open_positions()
-
-            # סריקה כל 5 דקות
-            if time.time() - last_scan_time > 300:
-                candidates     = get_dynamic_gainers()
-                last_scan_time = time.time()
-
-            # לא חורגים מ-PDT Rule
-            if not can_trade_today():
-                time.sleep(60)
-                continue
-
-            # טעינת פרופיל עדכני (ייתכן שהתיק השתנה)
-            portfolio = load_portfolio()
-            profile   = get_risk_profile(portfolio["balance"])
-
-            for sym, price in candidates:
-                active = load_active_trades()
-                if sym in active:
-                    continue
-                if sym in alerted_symbols:
-                    elapsed = datetime.now() - alerted_symbols[sym]
-                    if elapsed < timedelta(minutes=COOLDOWN_MINUTES):
-                        continue
-
-                setup = analyze_and_score_stock(sym, profile)
-                if setup:
-                    alerted_symbols[sym] = datetime.now()
-                    setup['timestamp']   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-                    active[sym] = setup
-                    save_active_trades(active)
-                    register_trade()
-
-                    rr_label = f"1:{setup['rr_ratio']}"
-                    msg = (f"🦅 *🚨 איתות קנייה: {setup['symbol']} (Grade {setup['grade'
+                    "rr_ratio":      
