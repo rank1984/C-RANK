@@ -511,4 +511,179 @@ def track_open_positions():
                     "duration_min":    duration,
                     "outcome":         outcome,
                     "pnl":             round(pnl, 2),
-                    "rr_ratio":      
+                    "rr_ratio":        trade.get('rr_ratio', 2.5),
+                }
+                log_trade(log_data)
+                update_balance_after_trade(pnl)
+
+                portfolio = load_portfolio()
+                emoji     = "💰" if win else "🛑"
+                msg = (f"{emoji} *עסקה נסגרה: {sym} ({outcome})*\n"
+                       f"━━━━━━━━━━━━━━━━━\n"
+                       f"🚪 *יציאה:* `${round(cur_price, 2)}` | כניסה ריאלית: `${trade['price']}`\n"
+                       f"💵 *רווח/הפסד:* `${round(pnl, 2)}`\n"
+                       f"⏱️ *זמן בעסקה:* `{duration} דקות`\n"
+                       f"━━━━━━━━━━━━━━━━━\n"
+                       f"💼 *יתרת תיק:* `${portfolio['balance']}` | מצב: `{portfolio['mode']}`")
+                send_telegram(msg)
+                del active[sym]
+
+        save_active_trades(active)
+    except Exception as e:
+        log.error(f"Tracking error: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# דשבורד ותשתיות עזר
+# ══════════════════════════════════════════════════════════════════════
+
+def send_daily_dashboard():
+    if not os.path.exists(LOG_FILE): return
+    try:
+        df = pd.read_csv(LOG_FILE).dropna()
+        if df.empty: return
+
+        total   = len(df)
+        wins_df = df[df['outcome'] == 'WIN']
+        loss_df = df[df['outcome'] == 'LOSS']
+        wr      = (len(wins_df) / total) * 100 if total > 0 else 0
+        pnl_sum = df['pnl'].sum()
+
+        avg_win   = wins_df['pnl'].mean() if not wins_df.empty else 0
+        avg_loss  = abs(loss_df['pnl'].mean()) if not loss_df.empty else 0
+        expectancy = ((len(wins_df)/total) * avg_win) - ((len(loss_df)/total) * avg_loss) if total > 0 else 0
+
+        portfolio = load_portfolio()
+        opt_status = "✅ פעיל ומעודכן" if os.path.exists(BEST_CONFIG_FILE) else "⏳ בהרצה (צובר דאטה)"
+        
+        msg = (f"📊 *DAYS-BOT V6.0 — DASHBOARD יומי*\n"
+               f"━━━━━━━━━━━━━━━━━\n"
+               f"📈 סה''כ עסקאות: `{total}` | Win Rate: `{wr:.1f}%`\n"
+               f"💰 רווח מצטבר: `${pnl_sum:.2f}`\n"
+               f"🎲 *תוחלת מתמטית:* `${expectancy:.2f}` לעסקה\n"
+               f"🤖 *מנוע אופטימיזציה:* `{opt_status}`\n"
+               f"💼 יתרת תיק: `${portfolio['balance']}` | מצב: `{portfolio['mode']}`\n"
+               f"━━━━━━━━━━━━━━━━━\n"
+               f"כולל סימולציית Slippage מובנית של 0.15% בכל כניסה.")
+        send_telegram(msg)
+    except Exception as e:
+        log.error(f"Dashboard error: {e}")
+
+def market_status() -> bool:
+    ny = datetime.now(pytz.timezone("US/Eastern"))
+    if ny.weekday() > 4: return False
+    return (ny.hour > 9 or (ny.hour == 9 and ny.minute >= 30)) and ny.hour < 16
+
+def send_telegram(msg: str):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
+    try: requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                      json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
+    except: pass
+
+def log_trade(data: dict):
+    try: pd.DataFrame([data]).to_csv(LOG_FILE, mode='a', header=not os.path.exists(LOG_FILE), index=False)
+    except: pass
+
+
+# ══════════════════════════════════════════════════════════════════════
+# לולאת ריצה ראשית ומחזור אופטימיזציה יומי
+# ══════════════════════════════════════════════════════════════════════
+
+def run_scanner():
+    log.info("🚀 DAYS-BOT V6.0 — Autonomous Auto-Optimization Core Is Active")
+    portfolio = load_portfolio()
+    profile   = get_risk_profile(portfolio["balance"])
+
+    send_telegram(
+        f"🔥 *DAYS-BOT V6.0 Active & Learning*\n"
+        f"💼 יתרת תיק: `${portfolio['balance']}` ({profile['mode']})\n"
+        f"⚙️ מודל למידה: `Self-Correcting Parameter Grid`\n"
+        f"📊 הגנת מ样本: `Cold-Start Protection (Min 10 trades)`"
+    )
+
+    last_scan_time = 0
+    last_optimization_time = 0
+    dashboard_sent = False
+    candidates = []
+
+    while True:
+        try:
+            ny_time = datetime.now(pytz.timezone("US/Eastern"))
+
+            if time.time() - last_optimization_time > 86400:
+                opt_config, opt_score = run_auto_optimization()
+                if opt_config:
+                    send_telegram(
+                        f"🧠 *V6 AUTO-OPTIMIZATION COMPLETE*\n"
+                        f"━━━━━━━━━━━━━━━━━\n"
+                        f"🎯 ציון מותאם חדש: `{opt_score:.2f}`\n"
+                        f"📈 יחס סיכון/סיכוי אופטימלי: `1:{opt_config['rr_ratio']}`\n"
+                        f"🛡️ סיכון תיק מומלץ: `{opt_config['risk_pct']*100:.1f}%`\n"
+                        f"⚙️ פילטרים עודכנו לבסיס הרווחי ביותר בהיסטוריה."
+                    )
+                last_optimization_time = time.time()
+
+            if ny_time.hour == 16 and ny_time.minute == 5 and not dashboard_sent:
+                send_daily_dashboard()
+                dashboard_sent = True
+            if ny_time.hour != 16:
+                dashboard_sent = False
+
+            if not market_status():
+                time.sleep(30)
+                continue
+
+            track_open_positions()
+
+            if time.time() - last_scan_time > 300:
+                candidates = get_dynamic_gainers()
+                last_scan_time = time.time()
+
+            if not can_trade_today():
+                time.sleep(60)
+                continue
+
+            portfolio = load_portfolio()
+            profile   = get_risk_profile(portfolio["balance"])
+
+            for sym, price in candidates:
+                active = load_active_trades()
+                if sym in active: continue
+                if sym in alerted_symbols:
+                    if datetime.now() - alerted_symbols[sym] < timedelta(minutes=COOLDOWN_MINUTES):
+                        continue
+
+                setup = analyze_and_score_stock(sym, profile)
+                if setup:
+                    alerted_symbols[sym] = datetime.now()
+                    setup['timestamp']   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                    active[sym] = setup
+                    save_active_trades(active)
+                    register_trade()
+
+                    ai_emoji = "🤖🔥" if setup['ai_pct'] >= 85 else "🤖"
+                    msg = (
+                        f"🦅 *🚨 איתות קנייה: {setup['symbol']} (Grade {setup['grade']})*\n"
+                        f"━━━━━━━━━━━━━━━━━\n"
+                        f"{ai_emoji} *התאמת מנוע AI:* `{setup['ai_pct']}%` \n"
+                        f"📊 *ציון טכני:* `{setup['score']}/12` | קו: `{setup['mode']}`\n"
+                        f"📰 *קטליזטור:* `{setup['news_title']}`\n\n"
+                        f"💵 *מחיר מקור:* `${setup['raw_price']}`\n"
+                        f"⚡ *כניסה מבוצעת (Slippage):* `${setup['price']}`\n"
+                        f"🛑 *סטופ:* `${setup['stop']}` | 🎯 *יעד:* `${setup['target']}`\n"
+                        f"━━━━━━━━━━━━━━━━━\n"
+                        f"📦 *מניות לקנייה:* {setup['shares']} | עלות פוזיציה: `${setup['cost']}`"
+                    )
+                    
+                    send_telegram(msg)
+                    log.info(f"💥 Live Trade Executed & Optimally Logged: {sym}")
+                    
+            time.sleep(20)
+            
+        except Exception as e:
+            log.error(f"Loop error: {e}")
+            time.sleep(20)
+
+if __name__ == "__main__":
+    run_scanner()
