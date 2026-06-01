@@ -1,0 +1,48 @@
+name: 🌅 DAYS-BOT V6.1 — Premarket Watchlist Generator
+
+on:
+  schedule:
+    # רץ ב-11:30 UTC (שזה 07:30 בבוקר ניו יורק בזמן שעון קיץ)
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch: # מאפשר לך להפעיל את הסורק ידנית בלחיצת כפתור במידת הצורך
+
+jobs:
+  premarket_scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas numpy yfinance requests pytz
+
+      - name: Run Premarket Watchlist Generator
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: python trading_bot.py premarket
+
+      - name: Commit and Push Watchlist Changes
+        run: |
+          git config --local user.name "DAY-S-BOT"
+          git config --local user.email "actions@github.com"
+          
+          # הוספת קובץ ה-Watchlist ועדכוני הפורטפוליו שנוצרו
+          git add daily_watchlist.csv portfolio_state.json 2>/dev/null || true
+          
+          if ! git diff --cached --quiet; then
+            git commit -m "🤖 [DAYS-BOT] Update Premarket Watchlist [skip ci]"
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
