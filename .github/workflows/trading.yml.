@@ -1,0 +1,48 @@
+name: 🦅 DAYS-BOT V6.1 — Live Trading Execution
+
+on:
+  schedule:
+    # רץ כל 5 דקות בין השעות 13:00 UTC ל-19:55 UTC (שעות המסחר בניו יורק)
+    - cron: '*/5 13-19 * * 1-5'
+  workflow_dispatch: # מאפשר לך להפעיל סבב מסחר ידנית
+
+jobs:
+  live_trading:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas numpy yfinance requests pytz
+
+      - name: Run Trading Execution
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: python trading_bot.py
+
+      - name: Commit and Push Trading State Changes
+        run: |
+          git config --local user.name "DAY-S-BOT"
+          git config --local user.email "actions@github.com"
+          
+          # הגנה מפני קריסות: מוסיף את כל קבצי המצב והלוגים רק אם הם קיימים והשתנו
+          git add active_trades.json portfolio_state.json trade_log.csv cooldown_state.json best_config.json 2>/dev/null || true
+          
+          if ! git diff --cached --quiet; then
+            git commit -m "🤖 [DAYS-BOT] Update State & Logs [skip ci]"
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
