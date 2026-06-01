@@ -2,7 +2,7 @@ name: 2 - Trading Bot
 
 on:
   schedule:
-    - cron: '*/15 13-20 * * 1-5' # רץ כל 15 דקות בזמן המסחר
+    - cron: '*/15 13-20 * * 1-5' # רץ כל 15 דקות בזמן המסחר (16:00-23:00 שעון ישראל בקיץ)
   workflow_dispatch:
 
 jobs:
@@ -12,21 +12,30 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -r requirements.txt
+          
+      - name: Install Dependencies
+        run: pip install pandas numpy yfinance requests pytz
+      
       - name: Run Trading Bot
         run: python trading_bot.py
         env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ACCOUNT_SIZE: "250"
           AGGRESSIVE_MODE: "true"
-      - name: Commit Logs
+          
+      - name: Commit State & Logs
         run: |
           git config user.name "DAY-S-BOT"
           git config user.email "bot@days-bot.com"
-          git add signals_log.csv near_miss_log.csv || true
-          git commit -m "📊 Update Trading Logs" || true
+          # הוספנו את כל הקבצים שמשתנים במהלך הריצה
+          git add portfolio_state.json active_trades.json trade_log.csv best_config.json || true
+          git commit -m "📊 Auto-Update: Trading State & Logs" || true
           git push || true
