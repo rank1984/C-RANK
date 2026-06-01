@@ -272,24 +272,35 @@ def check_news_catalyst(sym: str):
 # ══════════════════════════════════════════════════════════════════════
 # סריקת גיינרים דינמית וחישוב ביטחון AI
 # ══════════════════════════════════════════════════════════════════════
-
 def get_dynamic_gainers():
     url = "https://data.alpaca.markets/v1beta1/screener/stocks/movers?market_type=stocks"
     try:
-        res     = requests.get(url, headers=HEADERS).json()
-        gainers = res.get('gainers', [])
-        symbols = [s['symbol'] for s in gainers if s['percent_change'] > 3]
-        if not symbols:
-            return []
-            def get_dynamic_gainers():
-    url = "https://data.alpaca.markets/v1beta1/screener/stocks/movers?market_type=stocks"
-    try:
         res = requests.get(url, headers=HEADERS)
-        # נוסיף הדפסה כדי לראות מה השרת מחזיר באמת
         if res.status_code != 200:
             log.error(f"Alpaca API Error {res.status_code}: {res.text}")
             return []
         
+        data = res.json()
+        gainers = data.get('gainers', [])
+        symbols = [s['symbol'] for s in gainers if s['percent_change'] > 3]
+        if not symbols:
+            return []
+
+        snap_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={','.join(symbols)}&feed=iex"
+        snap_res = requests.get(snap_url, headers=HEADERS).json()
+
+        candidates = []
+        for sym, data in snap_res.items():
+            if not data or 'dailyBar' not in data:
+                continue
+            price = data['dailyBar'].get('c', 0)
+            vol   = data['dailyBar'].get('v', 0)
+            if (MIN_PRICE <= price <= MAX_PRICE) and (vol >= MIN_VOLUME):
+                candidates.append((sym, price))
+        return candidates
+    except Exception as e:
+        log.error(f"Error fetching gainers: {e}")
+        return []
         data = res.json()
         gainers = data.get('gainers', [])
         # ... (שאר הקוד נשאר אותו דבר)
