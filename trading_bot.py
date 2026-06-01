@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import json
 import logging
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta
 from itertools import product
 
 # ══════════════════════════════════════════════════════════════════════
-# DAYS-BOT V6.0 — GitHub Actions Stateless Engine
+# DAYS-BOT V6.1 — Unified Market Watchlist & Execution Engine
 # ══════════════════════════════════════════════════════════════════════
 
 ALPACA_API_KEY    = os.environ.get("ALPACA_API_KEY", "").strip()
@@ -33,15 +34,16 @@ MIN_VOLUME           = 500_000
 MAX_FLOAT            = 200_000_000
 AGGRESSIVE_THRESHOLD = 1_000.0
 
-# קבצי מערכת (נשמרים ב-Repository באמצעות Git Commit)
+# קבצי מערכת קשיחים (נשמרים ב-Repository באמצעות GitHub Git Commit)
 PORTFOLIO_FILE   = "portfolio_state.json"
 STATE_FILE       = "active_trades.json"
 LOG_FILE         = "trade_log.csv"
 BEST_CONFIG_FILE = "best_config.json"
 COOLDOWN_FILE    = "cooldown_state.json"
+WATCHLIST_FILE   = "daily_watchlist.csv"
 
 COOLDOWN_MINUTES = 60
-MAX_DAILY_TRADES = 3  # PDT Protection
+MAX_DAILY_TRADES = 3  # הגנת PDT
 
 # רשת אופטימיזציה (Param Grid V6)
 PARAM_GRID = {
@@ -54,7 +56,7 @@ PARAM_GRID = {
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-log = logging.getLogger("DAYS_BOT_V6_0")
+log = logging.getLogger("DAYS_BOT_V6_1")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -176,8 +178,8 @@ def run_auto_optimization():
 
     try:
         df = pd.read_csv(LOG_FILE).dropna()
-        if len(df) < 10:
-            log.info(f"🧠 Auto Optimizer: Insufficient data ({len(df)}/10 trades). Cold-start protection active.")
+        if len(df) < 30:
+            log.info(f"🧠 Auto Optimizer: Insufficient data ({len(df)}/30 trades). Cold-start protection active.")
             return None, 0.0
 
         keys = list(PARAM_GRID.keys())
@@ -248,7 +250,8 @@ def check_news_catalyst(sym: str):
         return False, "No Finnhub Key"
     try:
         today_str = datetime.now().strftime('%Y-%m-%d')
-        url = f"https://finnhub.io/api/v1/company-news?symbol={sym}&from={today_str}&to={today_str}&token={FINNHUB_API_KEY}"
+        yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        url = f"https://finnhub.io/api/v1/company-news?symbol={sym}&from={yesterday_str}&to={today_str}&token={FINNHUB_API_KEY}"
         res = requests.get(url, timeout=7)
         if res.status_code == 200:
             news_list = res.json()
@@ -258,6 +261,70 @@ def check_news_catalyst(sym: str):
     except Exception as e:
         log.error(f"Error checking news for {sym}: {e}")
     return False, "No Catalyst"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 📋 ניהול רשימת מעקב וסריקת פרימרקט (Watchlist V6.1)
+# ══════════════════════════════════════════════════════════════════════
+
+def load_watchlist():
+    if not os.path.exists(WATCHLIST_FILE):
+        log.warning(f"⚠️ קובץ ה-Watchlist [{WATCHLIST_FILE}] לא נמצא!")
+        return []
+    try:
+        df = pd.read_csv(WATCHLIST_FILE)
+        if df.empty or "symbol" not in df.columns:
+            return []
+        return list(zip(df["symbol"], df["price"]))
+    except Exception as e:
+        log.error(f"Error loading watchlist: {e}")
+        return []
+
+def run_premarket_scanner():
+    log.info("🌅 DAYS-BOT V6.1: מריץ סורק פרימרקט ומייצר Watchlist ממוקד...")
+    raw_candidates = get_dynamic_gainers()
+    if not raw_candidates:
+        log.info("🌅 לא נמצאו מניות עולות בפרימרקט.")
+        return
+
+    portfolio = load_portfolio()
+    profile   = get_risk_profile(portfolio["balance"])
+    watchlist_data = []
+    
+    for sym, price in raw_candidates:
+        setup = analyze_and_score_stock(sym, profile)
+        if setup:
+            watchlist_data.append(setup)
+
+    if not watchlist_data:
+        log.info("🌅 אף מניה לא עברה את פילטר הסינון הקשיח עבור ה-Watchlist.")
+        if os.path.exists(WATCHLIST_FILE):
+            os.remove(WATCHLIST_FILE)
+        return
+
+    # מיון המניות לפי הציון הטכני ורמת הביטחון של ה-AI
+    watchlist_data.sort(key=lambda x: (x["score"], x["ai_pct"]), reverse=True)
+    
+    # שמירה ל-CSV כדי שהבוט יקרא אותו בזמן המסחר
+    df_watchlist = pd.DataFrame(watchlist_data)
+    df_watchlist[["symbol", "price", "score", "ai_pct"]].to_csv(WATCHLIST_FILE, index=False)
+    log.info(f"💾 ה-Watchlist נשמר בהצלחה! מכיל {len(watchlist_data)} מניות מובילות.")
+
+    # בניית הודעת פרימרקט TOP 3 לטלגרם
+    top_3 = watchlist_data[:3]
+    msg = "🔥 *DAYS-BOT V6.1 — TOP 3 WATCHLIST* 🔥\n"
+    msg += "━━━━━━━━━━━━━━━━━\n"
+    for i, setup in enumerate(top_3, 1):
+        expected_min = setup['gap'] * 0.8
+        expected_max = setup['gap'] * 1.5
+        msg += f"{i}️⃣ *{setup['symbol']}* (Grade {setup['grade']})\n"
+        msg += f"   • AI Confidence: `{setup['ai_pct']}%` | Score: `{setup['score']}/12`\n"
+        msg += f"   • Gap: `{setup['gap']}%` | Catalyst: `{setup['news_title'][:40]}`\n"
+        msg += f"   • Expected Move: `{expected_min:.1f}% - {expected_max:.1f}%`\n\n"
+    
+    msg += "━━━━━━━━━━━━━━━━━\n"
+    msg += f"📋 סה''כ מניות חמות למעקב היום: `{len(watchlist_data)}`"
+    send_telegram(msg)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -587,7 +654,7 @@ def log_trade(data: dict):
 # ══════════════════════════════════════════════════════════════════════
 
 def run_scanner():
-    log.info("🚀 DAYS-BOT V6.0 — Running Scheduled Scan Step")
+    log.info("🚀 DAYS-BOT V6.1 — Running Scheduled Scan Step")
     portfolio = load_portfolio()
     profile   = get_risk_profile(portfolio["balance"])
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -629,8 +696,12 @@ def run_scanner():
         log.info("🛑 הגנת PDT פעילה: הגעת למגבלת העסקאות היומית. מדלג על סריקה.")
         return
 
-    # 6. סריקת מניות והזרקת איתותים
-    candidates = get_dynamic_gainers()
+    # 6. טעינת רשימת המעקב המוכנה מראש (Watchlist V6.1)
+    candidates = load_watchlist()
+    if not candidates:
+        log.info("📋 ה-Watchlist ריק או לא קיים. אין מניות למעקב במחזור הנוכחי.")
+        return
+
     updated_cooldowns = False
 
     for sym, price in candidates:
@@ -677,4 +748,8 @@ def run_scanner():
 
 
 if __name__ == "__main__":
-    run_scanner()
+    # אם קיבלנו ארגומנט 'premarket', נריץ את הסורק המכין
+    if len(sys.argv) > 1 and sys.argv[1] == "premarket":
+        run_premarket_scanner()
+    else:
+        run_scanner()
