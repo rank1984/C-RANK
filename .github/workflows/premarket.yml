@@ -2,13 +2,17 @@ name: 🌅 DAYS-BOT V6.1 — Premarket Watchlist Generator
 
 on:
   schedule:
-    # רץ ב-11:30 UTC (שזה 07:30 בבוקר ניו יורק בזמן שעון קיץ)
+    # רץ ב-11:30 UTC (שזה 07:30 בבוקר ניו יורק)
     - cron: '30 11 * * 1-5'
-  workflow_dispatch: # מאפשר לך להפעיל את הסורק ידנית בלחיצת כפתור במידת הצורך
+  workflow_dispatch: # מאפשר הפעלה ידנית
 
 jobs:
   premarket_scan:
     runs-on: ubuntu-latest
+    # תיקון שגיאה 128: הענקת הרשאות כתיבה לבוט
+    permissions:
+      contents: write
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
