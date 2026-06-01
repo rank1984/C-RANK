@@ -281,6 +281,18 @@ def get_dynamic_gainers():
         symbols = [s['symbol'] for s in gainers if s['percent_change'] > 3]
         if not symbols:
             return []
+            def get_dynamic_gainers():
+    url = "https://data.alpaca.markets/v1beta1/screener/stocks/movers?market_type=stocks"
+    try:
+        res = requests.get(url, headers=HEADERS)
+        # נוסיף הדפסה כדי לראות מה השרת מחזיר באמת
+        if res.status_code != 200:
+            log.error(f"Alpaca API Error {res.status_code}: {res.text}")
+            return []
+        
+        data = res.json()
+        gainers = data.get('gainers', [])
+        # ... (שאר הקוד נשאר אותו דבר)
 
         snap_url = f"https://data.alpaca.markets/v2/stocks/snapshots?symbols={','.join(symbols)}&feed=iex"
         snap_res = requests.get(snap_url, headers=HEADERS).json()
