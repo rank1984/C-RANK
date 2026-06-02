@@ -122,19 +122,19 @@ def get_risk_profile(balance: float) -> dict:
     if balance < AGGRESSIVE_THRESHOLD:
         return {
             "mode":           "AGGRESSIVE",
-            "risk_pct":       0.18,
-            "rr_ratio":       3.0,
-            "min_score":      10,
-            "min_grade":      "A+",
+            "risk_pct":       0.15,
+            "rr_ratio":       2.5,
+            "min_score":      7,       # הורדנו מ-10 ל-7 כדי שה-Watchlist יתמלא במניות חמות
+            "min_grade":      "B+",
             "max_risk_pct":   0.12,
         }
     else:
         return {
             "mode":           "MODERATE",
-            "risk_pct":       0.06,
+            "risk_pct":       0.05,
             "rr_ratio":       2.5,
-            "min_score":      8,
-            "min_grade":      "A",
+            "min_score":      7,       # רף כניסה מאוזן
+            "min_grade":      "B+",
             "max_risk_pct":   0.08,
         }
 
