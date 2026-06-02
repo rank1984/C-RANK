@@ -281,6 +281,14 @@ def run_premarket_scanner():
     for sym, price in raw_candidates:
         setup = analyze_and_score_stock(sym, profile)
         if setup:
+            # 🛡️ הגנה קריטית: אם המחיר הנוכחי גבוה משיא הפרימרקט שחושב, נתקן אותו כאן
+            if setup.get('pm_high', 0) < setup['price']:
+                setup['pm_high'] = round(setup['price'] * 1.005, 2) # טריגר של 0.5% מעל המחיר הנוכחי
+            
+            # 🛡️ הגנה על הסטופ: ודואג שהסטופ תמיד יהיה מתחת למחיר הכניסה
+            if setup.get('stop', 0) >= setup['price']:
+                setup['stop'] = round(setup['price'] * 0.97, 2)
+                
             watchlist_data.append(setup)
 
     if not watchlist_data:
@@ -297,7 +305,7 @@ def run_premarket_scanner():
     df_watchlist[["symbol", "price", "score", "ai_pct"]].to_csv(WATCHLIST_FILE, index=False)
     log.info(f"💾 ה-Watchlist נשמר בהצלחה! מכיל {len(watchlist_data)} מניות מובילות.")
 
-    # בניית הודעת פרימרקט חכמה וברורה (Score Card) לטלגרם - גרסה V6.2
+    # בניית הודעת פרימרקט חכמה וברורה (Score Card) לטלגרם - גרסה V6.2 המוגנת
     top_3 = watchlist_data[:3]
     msg = "🦅 *DAYS-BOT V6.2 — SCORE CARD איתותים יומי* 🦅\n"
     msg += "━━━━━━━━━━━━━━━━━\n\n"
@@ -306,22 +314,30 @@ def run_premarket_scanner():
         current_price = setup['price']
         target_1 = round(current_price * 1.02, 2)  # חישוב נעילת רווח מהירה ב-2% למחצית הפוזיציה
         
-        # הגנה מפני קריסות: אם משתנים מסוימים לא חזרו מהניתוח, המערכת תחשב להם ערך הגיוני אוטומטית
-        pm_high = setup.get('pm_high', round(current_price * 1.01, 2))
-        stop_loss = setup.get('stop', round(current_price * 0.98, 2))
+        pm_high = setup['pm_high']
+        stop_loss = setup['stop']
         target_2 = setup.get('target', round(current_price * 1.05, 2))
         rr_ratio = setup.get('rr_ratio', profile.get('rr_ratio', 2.5))
-        rvol = setup.get('rvol', '1.5+') # ברירת מחדל למחזור חריג
+        
+        # טיפול בווליום נמוך חריג - הוספת נורת אזהרה ויזואלית
+        raw_rvol = setup.get('rvol', 1.5)
+        try:
+            rvol_val = float(raw_rvol)
+            rvol_str = f"{rvol_val}x"
+            if rvol_val < 1.0:
+                rvol_str += " ⚠️ (ווליום חלש!)"
+        except:
+            rvol_str = f"{raw_rvol}x"
         
         expected_min = setup['gap'] * 0.8
         expected_max = setup['gap'] * 1.5
         
         msg += f"{i}️⃣ המניה המובילה: *{setup['symbol']}* (Grade {setup['grade']})\n"
         msg += f"   • 🤖 ביטחון AI: `{setup['ai_pct']}%` | ציון טכני: `{setup['score']}/12`\n"
-        msg += f"   • 📈 זינוק (Gap): `{setup['gap']}%` | מחזור (RVOL): `{rvol}x`\n"
+        msg += f"   • 📈 זינוק (Gap): `{setup['gap']}%` | מחזור (RVOL): `{rvol_str}`\n"
         msg += f"   • 📰 קטליזטור: `{setup['news_title'][:45]}`\n\n"
         msg += f"   📋 *תוכנית עבודה מוצעת למסחר (Score Card):*\n"
-        msg += f"   • ⚡ *טריגר כניסה:* מעל שיא פרימרקט `${pm_high}` (או מרקט באזור `${current_price}`)\n"
+        msg += f"   • ⚡ *טריגר כניסה (פריצה):* מעל `${pm_high}`\n"
         msg += f"   • 🛑 *סטופ לוס (הגנה):* `${stop_loss}`\n"
         msg += f"   • 🎯 *יעד 1 (נעילת 50% רווח):* `${target_1}` (+2.0%)\n"
         msg += f"   • 🎯 *יעד 2 (ריצה עם השאר):* `${target_2}` (יחס 1:{rr_ratio})\n"
