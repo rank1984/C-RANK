@@ -267,21 +267,8 @@ def check_news_catalyst(sym: str):
 # 📋 ניהול רשימת מעקב וסריקת פרימרקט (Watchlist V6.1)
 # ══════════════════════════════════════════════════════════════════════
 
-def load_watchlist():
-    if not os.path.exists(WATCHLIST_FILE):
-        log.warning(f"⚠️ קובץ ה-Watchlist [{WATCHLIST_FILE}] לא נמצא!")
-        return []
-    try:
-        df = pd.read_csv(WATCHLIST_FILE)
-        if df.empty or "symbol" not in df.columns:
-            return []
-        return list(zip(df["symbol"], df["price"]))
-    except Exception as e:
-        log.error(f"Error loading watchlist: {e}")
-        return []
-
 def run_premarket_scanner():
-    log.info("🌅 DAYS-BOT V6.1: מריץ סורק פרימרקט ומייצר Watchlist ממוקד...")
+    log.info("🌅 DAYS-BOT V6.2: מריץ סורק פרימרקט ומייצר Watchlist ממוקד...")
     raw_candidates = get_dynamic_gainers()
     if not raw_candidates:
         log.info("🌅 לא נמצאו מניות עולות בפרימרקט.")
@@ -310,22 +297,39 @@ def run_premarket_scanner():
     df_watchlist[["symbol", "price", "score", "ai_pct"]].to_csv(WATCHLIST_FILE, index=False)
     log.info(f"💾 ה-Watchlist נשמר בהצלחה! מכיל {len(watchlist_data)} מניות מובילות.")
 
-    # בניית הודעת פרימרקט TOP 3 לטלגרם
+    # בניית הודעת פרימרקט חכמה וברורה (Score Card) לטלגרם - גרסה V6.2
     top_3 = watchlist_data[:3]
-    msg = "🔥 *DAYS-BOT V6.1 — TOP 3 WATCHLIST* 🔥\n"
-    msg += "━━━━━━━━━━━━━━━━━\n"
+    msg = "🦅 *DAYS-BOT V6.2 — SCORE CARD איתותים יומי* 🦅\n"
+    msg += "━━━━━━━━━━━━━━━━━\n\n"
+    
     for i, setup in enumerate(top_3, 1):
+        current_price = setup['price']
+        target_1 = round(current_price * 1.02, 2)  # חישוב נעילת רווח מהירה ב-2% למחצית הפוזיציה
+        
+        # הגנה מפני קריסות: אם משתנים מסוימים לא חזרו מהניתוח, המערכת תחשב להם ערך הגיוני אוטומטית
+        pm_high = setup.get('pm_high', round(current_price * 1.01, 2))
+        stop_loss = setup.get('stop', round(current_price * 0.98, 2))
+        target_2 = setup.get('target', round(current_price * 1.05, 2))
+        rr_ratio = setup.get('rr_ratio', profile.get('rr_ratio', 2.5))
+        rvol = setup.get('rvol', '1.5+') # ברירת מחדל למחזור חריג
+        
         expected_min = setup['gap'] * 0.8
         expected_max = setup['gap'] * 1.5
-        msg += f"{i}️⃣ *{setup['symbol']}* (Grade {setup['grade']})\n"
-        msg += f"   • AI Confidence: `{setup['ai_pct']}%` | Score: `{setup['score']}/12`\n"
-        msg += f"   • Gap: `{setup['gap']}%` | Catalyst: `{setup['news_title'][:40]}`\n"
-        msg += f"   • Expected Move: `{expected_min:.1f}% - {expected_max:.1f}%`\n\n"
+        
+        msg += f"{i}️⃣ המניה המובילה: *{setup['symbol']}* (Grade {setup['grade']})\n"
+        msg += f"   • 🤖 ביטחון AI: `{setup['ai_pct']}%` | ציון טכני: `{setup['score']}/12`\n"
+        msg += f"   • 📈 זינוק (Gap): `{setup['gap']}%` | מחזור (RVOL): `{rvol}x`\n"
+        msg += f"   • 📰 קטליזטור: `{setup['news_title'][:45]}`\n\n"
+        msg += f"   📋 *תוכנית עבודה מוצעת למסחר (Score Card):*\n"
+        msg += f"   • ⚡ *טריגר כניסה:* מעל שיא פרימרקט `${pm_high}` (או מרקט באזור `${current_price}`)\n"
+        msg += f"   • 🛑 *סטופ לוס (הגנה):* `${stop_loss}`\n"
+        msg += f"   • 🎯 *יעד 1 (נעילת 50% רווח):* `${target_1}` (+2.0%)\n"
+        msg += f"   • 🎯 *יעד 2 (ריצה עם השאר):* `${target_2}` (יחס 1:{rr_ratio})\n"
+        msg += f"   📊 *צפי תנועה יומי ממוצע:* `{expected_min:.1f}% עד {expected_max:.1f}%`\n"
+        msg += "━━━━━━━━━━━━━━━━━\n\n"
     
-    msg += "━━━━━━━━━━━━━━━━━\n"
-    msg += f"📋 סה''כ מניות חמות למעקב היום: `{len(watchlist_data)}`"
+    msg += f"📋 סה''כ מניות חמות במעקב חם להיום: `{len(watchlist_data)}`"
     send_telegram(msg)
-
 
 # ══════════════════════════════════════════════════════════════════════
 # 🔍 סריקת גיינרים וחישוב ביטחון AI
