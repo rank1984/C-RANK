@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from itertools import product
 
 # ══════════════════════════════════════════════════════════════════════
-# DAYS-BOT V6.1 — Unified Market Watchlist & Execution Engine
+# DAYS-BOT V7.0 — Unified Market Watchlist & Execution Engine
 # ══════════════════════════════════════════════════════════════════════
 
 ALPACA_API_KEY    = os.environ.get("ALPACA_API_KEY", "").strip()
@@ -34,7 +34,7 @@ MIN_VOLUME           = 500_000
 MAX_FLOAT            = 200_000_000
 AGGRESSIVE_THRESHOLD = 1_000.0
 
-# קבצי מערכת קשיחים (נשמרים ב-Repository באמצעות GitHub Git Commit)
+# קבצי מערכת קשיחים
 PORTFOLIO_FILE   = "portfolio_state.json"
 STATE_FILE       = "active_trades.json"
 LOG_FILE         = "trade_log.csv"
@@ -56,7 +56,7 @@ PARAM_GRID = {
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-log = logging.getLogger("DAYS_BOT_V6_1")
+log = logging.getLogger("DAYS_BOT_V7_0")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -99,6 +99,22 @@ def save_cooldowns(data):
     with open(COOLDOWN_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+def load_watchlist():
+    if not os.path.exists(WATCHLIST_FILE):
+        return []
+    try:
+        df = pd.read_csv(WATCHLIST_FILE)
+        if df.empty:
+            return []
+        return list(zip(df['symbol'], df['price']))
+    except:
+        return []
+
+def log_trade(data):
+    file_exists = os.path.exists(LOG_FILE)
+    df = pd.DataFrame([data])
+    df.to_csv(LOG_FILE, mode='a', header=not file_exists, index=False)
+
 def can_trade_today() -> bool:
     portfolio = load_portfolio()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -124,7 +140,7 @@ def get_risk_profile(balance: float) -> dict:
             "mode":           "AGGRESSIVE",
             "risk_pct":       0.15,
             "rr_ratio":       2.5,
-            "min_score":      7,       # הורדנו מ-10 ל-7 כדי שה-Watchlist יתמלא במניות חמות
+            "min_score":      7,       
             "min_grade":      "B+",
             "max_risk_pct":   0.12,
         }
@@ -133,7 +149,7 @@ def get_risk_profile(balance: float) -> dict:
             "mode":           "MODERATE",
             "risk_pct":       0.05,
             "rr_ratio":       2.5,
-            "min_score":      7,       # רף כניסה מאוזן
+            "min_score":      7,       
             "min_grade":      "B+",
             "max_risk_pct":   0.08,
         }
@@ -268,7 +284,7 @@ def check_news_catalyst(sym: str):
 # ══════════════════════════════════════════════════════════════════════
 
 def run_premarket_scanner():
-    log.info("🌅 DAYS-BOT V6.2: מריץ סורק פרימרקט ומייצר Watchlist ממוקד...")
+    log.info("🌅 DAYS-BOT: מריץ סורק פרימרקט ומייצר Watchlist ממוקד...")
     raw_candidates = get_dynamic_gainers()
     if not raw_candidates:
         log.info("🌅 לא נמצאו מניות עולות בפרימרקט.")
@@ -281,11 +297,9 @@ def run_premarket_scanner():
     for sym, price in raw_candidates:
         setup = analyze_and_score_stock(sym, profile)
         if setup:
-            # 🛡️ הגנה קריטית: אם המחיר הנוכחי גבוה משיא הפרימרקט שחושב, נתקן אותו כאן
             if setup.get('pm_high', 0) < setup['price']:
-                setup['pm_high'] = round(setup['price'] * 1.005, 2) # טריגר של 0.5% מעל המחיר הנוכחי
+                setup['pm_high'] = round(setup['price'] * 1.005, 2)
             
-            # 🛡️ הגנה על הסטופ: ודואג שהסטופ תמיד יהיה מתחת למחיר הכניסה
             if setup.get('stop', 0) >= setup['price']:
                 setup['stop'] = round(setup['price'] * 0.97, 2)
                 
@@ -297,29 +311,25 @@ def run_premarket_scanner():
             os.remove(WATCHLIST_FILE)
         return
 
-    # מיון המניות לפי הציון הטכני ורמת הביטחון של ה-AI
     watchlist_data.sort(key=lambda x: (x["score"], x["ai_pct"]), reverse=True)
     
-    # שמירה ל-CSV כדי שהבוט יקרא אותו בזמן המסחר
     df_watchlist = pd.DataFrame(watchlist_data)
     df_watchlist[["symbol", "price", "score", "ai_pct"]].to_csv(WATCHLIST_FILE, index=False)
     log.info(f"💾 ה-Watchlist נשמר בהצלחה! מכיל {len(watchlist_data)} מניות מובילות.")
 
-    # בניית הודעת פרימרקט חכמה וברורה (Score Card) לטלגרם - גרסה V6.2 המוגנת
     top_3 = watchlist_data[:3]
-    msg = "🦅 *DAYS-BOT V6.2 — SCORE CARD איתותים יומי* 🦅\n"
+    msg = "🦅 *DAYS-BOT — SCORE CARD איתותים יומי* 🦅\n"
     msg += "━━━━━━━━━━━━━━━━━\n\n"
     
     for i, setup in enumerate(top_3, 1):
         current_price = setup['price']
-        target_1 = round(current_price * 1.02, 2)  # חישוב נעילת רווח מהירה ב-2% למחצית הפוזיציה
+        target_1 = round(current_price * 1.02, 2)  
         
         pm_high = setup['pm_high']
         stop_loss = setup['stop']
         target_2 = setup.get('target', round(current_price * 1.05, 2))
         rr_ratio = setup.get('rr_ratio', profile.get('rr_ratio', 2.5))
         
-        # טיפול בווליום נמוך חריג - הוספת נורת אזהרה ויזואלית
         raw_rvol = setup.get('rvol', 1.5)
         try:
             rvol_val = float(raw_rvol)
@@ -346,6 +356,7 @@ def run_premarket_scanner():
     
     msg += f"📋 סה''כ מניות חמות במעקב חם להיום: `{len(watchlist_data)}`"
     send_telegram(msg)
+
 
 # ══════════════════════════════════════════════════════════════════════
 # 🔍 סריקת גיינרים וחישוב ביטחון AI
@@ -485,6 +496,15 @@ def analyze_and_score_stock(sym: str, profile: dict):
 
         grade = "A+" if score >= 10 else "A"
 
+        # 🚀 [שדרוג 3 - חלק א']: הוספת תנאי Runner Mode מתחת להגדרת ה-Grade
+        runner = (
+            score >= 8 and
+            rvol >= 3 and
+            gap_pct >= 20 and
+            float_shares <= 50_000_000 and
+            has_news
+        )
+
         # החלת קנס Slippage ריאלי של 0.15% בכניסת מרקט
         slippage_pct = 0.0015
         entry_price  = round(raw_price * (1 + slippage_pct), 2)
@@ -509,8 +529,18 @@ def analyze_and_score_stock(sym: str, profile: dict):
             return None
 
         cost   = round(shares * entry_price, 2)
-        target = round(entry_price + (risk_amount * current_rr_ratio), 2)
 
+        # 🚀 [שדרוג 3 - חלק ב']: החלפת חישוב ה-Target הרגיל ביעד מותאם מבוסס Runner
+        if runner:
+            target = round(entry_price * 1.30, 2)
+        else:
+            target = round(
+                entry_price +
+                (risk_amount * current_rr_ratio),
+                2
+            )
+
+        # 🚀 [שדרוג 3 - חלק ג']: הוספת מפתח "runner" לתוך מילון ה-return
         return {
             "symbol":        sym,
             "raw_price":     round(raw_price, 2),
@@ -519,6 +549,7 @@ def analyze_and_score_stock(sym: str, profile: dict):
             "vwap":          round(last_vwap, 2),
             "stop":          round(stop_loss, 2),
             "target":        target,
+            "runner":        runner,
             "shares":        shares,
             "cost":          cost,
             "score":         score,
@@ -636,7 +667,7 @@ def send_daily_dashboard():
         portfolio = load_portfolio()
         opt_status = "✅ פעיל ומעודכן" if os.path.exists(BEST_CONFIG_FILE) else "⏳ בהרצה (צובר דאטה)"
         
-        msg = (f"📊 *DAYS-BOT V6.0 — DASHBOARD יומי*\n"
+        msg = (f"📊 *DAYS-BOT — DASHBOARD יומי*\n"
                f"━━━━━━━━━━━━━━━━━\n"
                f"📈 סה''כ עסקאות: `{total}` | Win Rate: `{wr:.1f}%`\n"
                f"💰 רווח מצטבר: `${pnl_sum:.2f}`\n"
@@ -654,6 +685,8 @@ def market_status() -> bool:
     if ny.weekday() > 4: return False
     return (ny.hour > 9 or (ny.hour == 9 and ny.minute >= 30)) and ny.hour < 16
 
+
+# 🚀 [שדרוג 1]: החלפת פונקציית הטלגרם הישנה במנגנון Logging מורחב ומאובטח
 def send_telegram(msg: str):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         log.error("Telegram credentials missing")
@@ -679,24 +712,34 @@ def send_telegram(msg: str):
         log.error(f"Telegram Exception: {e}")
 
 
+# 🚀 [שדרוג 2 - חלק א']: הוספת פילטר הגנת דקות הפתיחה (Opening Bell Filter)
+def opening_bell_filter():
+    ny = datetime.now(pytz.timezone("US/Eastern"))
+
+    if ny.hour == 9 and ny.minute < 35:
+        return False
+
+    return True
+
+
 # ══════════════════════════════════════════════════════════════════════
 # 🚀 פונקציית הניהול הראשית (GitHub Actions Single-Run Handler)
 # ══════════════════════════════════════════════════════════════════════
 
 def run_scanner():
-    log.info("🚀 DAYS-BOT V6.1 — Running Scheduled Scan Step")
+    log.info("🚀 DAYS-BOT — Running Scheduled Scan Step")
     portfolio = load_portfolio()
     profile   = get_risk_profile(portfolio["balance"])
     today_str = datetime.now().strftime("%Y-%m-%d")
     ny_time   = datetime.now(pytz.timezone("US/Eastern"))
     cooldowns = load_cooldowns()
 
-    # 1. מנוע אופטימיזציה אוטונומי - הרצה מבוססת תאריך ב-JSON
+    # 1. מנוע אופטימיזציה אוטונומי
     if portfolio.get("last_optimization_date") != today_str:
         opt_config, opt_score = run_auto_optimization()
         if opt_config:
             send_telegram(
-                f"🧠 *V6 AUTO-OPTIMIZATION COMPLETE*\n"
+                f"🧠 *AUTO-OPTIMIZATION COMPLETE*\n"
                 f"━━━━━━━━━━━━━━━━━\n"
                 f"🎯 ציון מותאם חדש: `{opt_score:.2f}`\n"
                 f"📈 יחס סיכון/סיכוי אופטימלי: `1:{opt_config['rr_ratio']}`\n"
@@ -713,7 +756,7 @@ def run_scanner():
             portfolio["last_dashboard_date"] = today_str
             save_portfolio(portfolio)
 
-    # 3. בדיקת שעות מסחר - אם סגור, יוצאים מיד כדי לאפשר ל-Workflow להסתיים
+    # 3. בדיקת שעות מסחר
     if not market_status():
         log.info("💤 הבורסה סגורה כרגע. יוצאים וממתינים למחזור ה-Cron הבא.")
         return
@@ -721,12 +764,17 @@ def run_scanner():
     # 4. מעקב פוזיציות פתוחות
     track_open_positions()
 
+    # 🚀 [שדרוג 2 - חלק ב']: הטמעת חסימת הפעילות בדקות הפתיחה מיד אחרי המעקב
+    if not opening_bell_filter():
+        log.info("Opening Bell Protection Active")
+        return
+
     # 5. בדיקת הגנת PDT מבוססת JSON
     if not can_trade_today():
         log.info("🛑 הגנת PDT פעילה: הגעת למגבלת העסקאות היומית. מדלג על סריקה.")
         return
 
-    # 6. טעינת רשימת המעקב המוכנה מראש (Watchlist V6.1)
+    # 6. טעינת רשימת המעקב
     candidates = load_watchlist()
     if not candidates:
         log.info("📋 ה-Watchlist ריק או לא קיים. אין מניות למעקב במחזור הנוכחי.")
@@ -770,16 +818,18 @@ def run_scanner():
                 f"📦 *מניות לקנייה:* {setup['shares']} | עלות פוזיציה: `${setup['cost']}`"
             )
             
+            if setup.get("runner", False):
+                msg += "\n🚀 *⚡ מניית RUNNER זוהתה! יעד רווח מוגדל ל-30%.*"
+            
             send_telegram(msg)
-            log.info(f"💥 Live Trade Executed & Optimally Logged: {sym}")
+            log.info(f"💥 Live Trade Executed & Optimally Logged for {sym}")
 
     if updated_cooldowns:
         save_cooldowns(cooldowns)
 
 
 if __name__ == "__main__":
-    # אם קיבלנו ארגומנט 'premarket', נריץ את הסורק המכין
-    if len(sys.argv) > 1 and sys.argv[1] == "premarket":
+    if len(sys.argv) > 1 and sys.argv[1] == "--premarket":
         run_premarket_scanner()
     else:
         run_scanner()
