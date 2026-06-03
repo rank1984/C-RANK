@@ -10,9 +10,13 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 from itertools import product
-from dotenv import load_dotenv  # הוספנו את הספרייה הזו
-load_dotenv()
-
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # אנחנו נמצאים בסביבת ענן (כמו GitHub Actions) שבה הספרייה לא מותקנת
+    # זה בסדר גמור, כי שם המשתנים מוזרקים ישירות דרך Secrets
+    pass
 # ══════════════════════════════════════════════════════════════════════
 # DAYS-BOT V7.0 — Unified Market Watchlist & Execution Engine
 # ══════════════════════════════════════════════════════════════════════
