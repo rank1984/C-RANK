@@ -655,18 +655,28 @@ def market_status() -> bool:
     return (ny.hour > 9 or (ny.hour == 9 and ny.minute >= 30)) and ny.hour < 16
 
 def send_telegram(msg: str):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
-    try: 
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                      json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
-    except: 
-        pass
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        log.error("Telegram credentials missing")
+        return
 
-def log_trade(data: dict):
-    try: 
-        pd.DataFrame([data]).to_csv(LOG_FILE, mode='a', header=not os.path.exists(LOG_FILE), index=False)
-    except: 
-        pass
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": msg,
+                "parse_mode": "Markdown"
+            },
+            timeout=15
+        )
+
+        if r.status_code != 200:
+            log.error(f"Telegram Error: {r.text}")
+        else:
+            log.info("Telegram message sent")
+
+    except Exception as e:
+        log.error(f"Telegram Exception: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
