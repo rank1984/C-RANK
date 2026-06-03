@@ -292,8 +292,15 @@ def check_news_catalyst(sym: str):
 def run_premarket_scanner():
     log.info("🌅 DAYS-BOT: מריץ סורק פרימרקט ומייצר Watchlist ממוקד...")
     raw_candidates = get_dynamic_gainers()
+    
+    # 🚨 נקודת יציאה 1: אלפקה לא החזירה אף מניה שעולה מעל 3%
     if not raw_candidates:
         log.info("🌅 לא נמצאו מניות עולות בפרימרקט.")
+        msg = ("🌅 *DAYS-BOT — סורק פרימרקט*\n"
+               "━━━━━━━━━━━━━━━━━\n"
+               "הסריקה בוצעה בהצלחה! 0 מניות עולות נמצאו בפרימרקט ברגע זה.\n"
+               "הבוט ימשיך להמתין למחזור הבא.")
+        send_telegram(msg)
         return
 
     portfolio = load_portfolio()
@@ -311,10 +318,17 @@ def run_premarket_scanner():
                 
             watchlist_data.append(setup)
 
+    # 🚨 נקודת יציאה 2: נמצאו מניות עולות, אבל אף אחת לא עברה את הסינון הטכני שלך (ציון נמוך מדי)
     if not watchlist_data:
         log.info("🌅 אף מניה לא עברה את פילטר הסינון הקשיח עבור ה-Watchlist.")
         if os.path.exists(WATCHLIST_FILE):
             os.remove(WATCHLIST_FILE)
+            
+        msg = ("🌅 *DAYS-BOT — סורק פרימרקט*\n"
+               "━━━━━━━━━━━━━━━━━\n"
+               f"הסריקה זיהתה `{len(raw_candidates)}` מועמדות ראשוניות, אך *אף מניה* לא עברה את פילטר הסינון הקשיח והציון המינימלי שלך.\n"
+               "ה-Watchlist להיום נשאר ריק.")
+        send_telegram(msg)
         return
 
     watchlist_data.sort(key=lambda x: (x["score"], x["ai_pct"]), reverse=True)
@@ -356,7 +370,7 @@ def run_premarket_scanner():
         msg += f"   • ⚡ *טריגר כניסה (פריצה):* מעל `${pm_high}`\n"
         msg += f"   • 🛑 *סטופ לוס (הגנה):* `${stop_loss}`\n"
         msg += f"   • 🎯 *יעד 1 (נעילת 50% רווח):* `${target_1}` (+2.0%)\n"
-        msg += f"   • 🎯 *יעד 2 (ריצה עם השאר):* `${target_2}` (יחס 1:{rr_ratio})\n"
+        msg += f"   • 🎯 *יעד 2 (ריצה WITH THE REST):* `${target_2}` (יחס 1:{rr_ratio})\n"
         msg += f"   📊 *צפי תנועה יומי ממוצע:* `{expected_min:.1f}% עד {expected_max:.1f}%`\n"
         msg += "━━━━━━━━━━━━━━━━━\n\n"
     
