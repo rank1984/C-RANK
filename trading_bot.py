@@ -10,6 +10,10 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 from itertools import product
+from dotenv import load_dotenv  # הוספנו את הספרייה הזו
+
+# טעינת משתני הסביבה (חשוב להריץ לפני שקוראים ל-os.environ)
+load_dotenv()
 
 # ══════════════════════════════════════════════════════════════════════
 # DAYS-BOT V7.0 — Unified Market Watchlist & Execution Engine
