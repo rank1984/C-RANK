@@ -344,9 +344,10 @@ def analyze_and_score_stock(sym: str, profile: dict):
         entry_price  = round(raw_price * (1 + slippage_pct), 2)
         stop_loss    = round(cur['Low'] - 0.02, 2)
         
-        ai_pct = int(min(max(50 + (score * 5), 10), 99))
+ai_pct = int(min(max(50 + (score * 5), 10), 99))
 
-     def send_telegram_alert():
+
+def send_telegram_alert():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
 
