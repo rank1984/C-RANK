@@ -346,6 +346,31 @@ def analyze_and_score_stock(sym: str, profile: dict):
         
         ai_pct = int(min(max(50 + (score * 5), 10), 99))
 
+        def send_telegram(message: str):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        log.warning("Telegram configuration missing!")
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=15
+        )
+
+        log.info(f"Telegram status: {response.status_code}")
+        log.info(response.text)
+
+    except Exception as e:
+        log.error(f"Telegram send failed: {e}")
         return {
             "symbol": sym, "price": entry_price, "score": score, "ai_pct": ai_pct,
             "pm_high": pm_high, "stop": stop_loss, "gap": round(gap_pct, 1),
