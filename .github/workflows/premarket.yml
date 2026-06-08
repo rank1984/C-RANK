@@ -45,3 +45,5 @@ jobs:
           else
             echo "No changes to commit"
           fi
+          send_telegram("✅ DAYS-BOT V8 התחיל סריקה")
+
