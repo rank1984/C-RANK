@@ -346,9 +346,8 @@ def analyze_and_score_stock(sym: str, profile: dict):
         
         ai_pct = int(min(max(50 + (score * 5), 10), 99))
 
-        def send_telegram(message: str):
+     def send_telegram_alert():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        log.warning("Telegram configuration missing!")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
